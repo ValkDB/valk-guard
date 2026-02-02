@@ -1,8 +1,20 @@
 # Valk Guard
 
-Open-source database performance linter for CI/CD. Statically analyzes SQL in source code and flags performance anti-patterns.
+Open-source database performance linter for CI/CD that finds dangerous SQL **inside your application code** — not just in migration files.
 
-Runs locally or as a GitHub Action to block PRs that introduce database performance issues.
+Most SQL linters only analyze standalone `.sql` files. Valk Guard goes further: it reaches into your Go source code, extracts SQL from `db.Query()`, `db.Exec()`, and other database calls, and catches performance and data-safety issues before they reach production.
+
+It's the difference between linting your migrations and linting **what your application actually does to your database**.
+
+## Why Valk Guard
+
+**Application-code SQL extraction.** Your most dangerous queries aren't in migration files — they're buried in application code. A `DELETE` without a `WHERE` inside a handler. An unbounded `SELECT` on a table that grew from 1K to 10M rows. Valk Guard uses real language-level AST parsing (not regex) to find and analyze these queries wherever they live in your codebase.
+
+**DML analysis, not just DDL.** Migration linters check whether your schema changes are safe. Valk Guard checks whether your **queries** are safe — missing WHERE clauses, unbounded reads, full table scans, dangerous updates. These are the queries that cause outages at 3am.
+
+**Org-level policies for critical tables.** Define protected tables and enforce rules across your team. Mark `users` or `payments` as protected and automatically block destructive operations, require WHERE clauses, or enforce LIMIT on reads. Turn tribal knowledge ("never run DELETE on the audit table") into automated guardrails.
+
+**CI-native, not bolted on.** Runs as a GitHub Action with inline PR annotations, SARIF integration for Code Scanning dashboards, and clear exit codes. Developers get feedback in the PR, not in a separate dashboard they'll never check.
 
 ## Requirements
 
@@ -114,7 +126,37 @@ exclude:
   - "migrations/seed_*.sql"
 ```
 
-Inline suppression in SQL files:
+### Policies — Protect What Matters
+
+Policies let you enforce table-specific guardrails across your org. Instead of relying on code review to remember "don't touch the audit table," encode it in config:
+
+```yaml
+policies:
+  - name: "protect-core-tables"
+    description: "Critical tables — block destructive operations"
+    match:
+      tables: [users, accounts, payments]
+    rules:
+      VG002: { severity: error }   # UPDATE without WHERE → error
+      VG003: { severity: error }   # DELETE without WHERE → error
+      VG007: { severity: error }   # DROP/TRUNCATE → error
+
+  - name: "audit-is-append-only"
+    description: "Audit log is immutable"
+    match:
+      tables: [audit_log, event_log]
+    deny: [DELETE, UPDATE, TRUNCATE, DROP]
+
+  - name: "large-tables-need-limits"
+    match:
+      tables: [events, transactions, logs]
+    rules:
+      VG004: { severity: error }   # unbounded SELECT → error
+```
+
+Policies compose — multiple policies can match the same table, and the strictest rule wins. This turns team conventions into automated enforcement.
+
+### Inline Suppression
 
 ```sql
 -- valk-guard:disable VG001
@@ -141,11 +183,11 @@ Findings appear as inline annotations on the PR diff. SARIF output integrates wi
 
 ## Roadmap
 
-**Stage 1** (current): SQL linting for Go and raw SQL files — DML + DDL rules, CLI, GitHub Action, SARIF output.
+**Stage 1** (current): Go + raw SQL analysis — DML + DDL rules, table-level policies, CLI, GitHub Action, SARIF output.
 
-**Stage 2** (planned): Python SQLAlchemy ORM pattern detection — N+1 query detection, missing eager loads, unbounded `.all()`, raw SQL extraction from `text()`/`execute()`.
+**Stage 2** (planned): Python SQLAlchemy ORM pattern detection — N+1 query detection, missing eager loads, unbounded `.all()`, raw SQL extraction from `text()`/`execute()`. Additional language scanners (Java/JDBC, Node/Knex).
 
-**Stage 3** (planned): Schema-aware analysis, additional language spokes, custom rule authoring.
+**Stage 3** (planned): Schema-aware analysis — connect to a live or dumped schema to detect missing indexes, full table scans, and type mismatches. Custom policy expressions.
 
 ## License
 
