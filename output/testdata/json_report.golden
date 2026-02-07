@@ -1,0 +1,18 @@
+[
+  {
+    "rule_id": "VG001",
+    "severity": "warning",
+    "message": "avoid SELECT *",
+    "file": "query.sql",
+    "line": 10,
+    "column": 0
+  },
+  {
+    "rule_id": "VG002",
+    "severity": "error",
+    "message": "missing WHERE clause",
+    "file": "update.sql",
+    "line": 5,
+    "column": 0
+  }
+]

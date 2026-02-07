@@ -1,0 +1,15 @@
+format: json
+
+exclude:
+  - "vendor/*"
+  - "*.gen.sql"
+
+rules:
+  VG001:
+    enabled: true
+    severity: error
+  VG002:
+    enabled: false
+    severity: warning
+  VG003:
+    severity: info

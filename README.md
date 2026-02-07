@@ -1,101 +1,114 @@
 # Valk Guard
 
-Open-source database performance linter for CI/CD. Statically analyzes SQL in source code and flags performance anti-patterns.
+[![Build Status](https://img.shields.io/github/actions/workflow/status/ValkDB/valk-guard/ci.yml?branch=main)](https://github.com/ValkDB/valk-guard/actions)
+[![Go Version](https://img.shields.io/badge/Go-1.25.6+-00ADD8?logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Runs locally or as a GitHub Action to block PRs that introduce database performance issues.
+**Open-source database performance linter for CI/CD. Statically analyzes SQL in source code and flags performance anti-patterns before they hit production.**
 
-## Requirements
+---
 
-- Go 1.25.6+
-- PostgreSQL SQL dialect
+> **Early Development** -- Core linting is active with built-in rules `VG001` through `VG008`. Contributions for additional rules and scanners are welcome.
+
+---
+
+## What It Does
+
+Valk Guard scans your codebase for SQL -- both raw `.sql` files and SQL strings embedded in Go source code. Each SQL statement is parsed into structured metadata using [valk-postgres-parser](https://github.com/ValkDB/valk-postgres-parser) (an ANTLR4-based PostgreSQL grammar), then checked against a set of lint rules that catch common performance and safety anti-patterns. Findings are reported as colored terminal output, JSON, or SARIF 2.1.0 for integration with GitHub Code Scanning.
+
+The goal: catch `SELECT *`, missing `WHERE` clauses, unbounded queries, destructive DDL, and other database footguns in CI before they reach production.
+
+## Features (What We Support Today)
+
+The CLI scaffold, scanning pipeline, reporting layer, and initial rules are implemented:
+
+- **Raw SQL file scanning** (`.sql`) with full awareness of quoted strings, dollar-quoting, line comments (`--`), and block comments (`/* */`)
+- **Go source scanning** -- extracts SQL string literals from `db.Query`, `db.Exec`, `db.QueryRow`, `db.Prepare`, and other common database method calls via `go/ast`
+- **PostgreSQL dialect parsing** via [valk-postgres-parser](https://github.com/ValkDB/valk-postgres-parser) (ANTLR4 grammar)
+- **Three output formats**: terminal (colored), JSON, SARIF 2.1.0
+- **Inline disable directives** -- `-- valk-guard:disable VG001` in SQL, `// valk-guard:disable VG001` in Go
+- **Per-rule configuration** via `.valk-guard.yaml` (enable/disable individual rules, override severity)
+- **File exclusion patterns** with glob support (including `**` for recursive matching)
+- **`--verbose` mode** for debugging scanner and parser behavior
+- **`--output` flag** to write results directly to a file
+- **Exit codes**: `0` = clean, `1` = findings, `2` = config/runtime error
+
+**Current status:** Rules `VG001` through `VG008` are implemented.
 
 ## Installation
 
+Build from source (requires Go 1.25.6+):
+
 ```bash
-go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
+git clone https://github.com/ValkDB/valk-guard.git
+cd valk-guard
+make build        # produces ./valk-guard binary
+make install      # installs to $GOPATH/bin
 ```
 
-Or use as a GitHub Action (see below).
+## Quick Start
 
-## Status
+```bash
+# Scan the current directory
+valk-guard scan .
 
-Under development — Stage 1 (SQL linting for Go and raw SQL files).
+# Scan specific paths
+valk-guard scan ./sql/ ./internal/
+
+# Output as JSON
+valk-guard scan . --format json
+
+# Output as SARIF (for GitHub Code Scanning)
+valk-guard scan . --format sarif
+
+# Use a custom config file
+valk-guard scan . --config .valk-guard.yaml
+
+# Enable verbose output for debugging
+valk-guard scan . --verbose
+
+# Write results to a file
+valk-guard scan . --format sarif --output results.sarif
+```
 
 ## How It Works
 
-Valk Guard scans your codebase for SQL — both raw `.sql` files and SQL strings embedded in Go source code. Each statement is parsed into a structured IR using [valk-postgres-parser](https://github.com/ValkDB/valk-postgres-parser) (an ANTLR4 PostgreSQL parser), then checked against a set of lint rules. Findings are reported as inline PR annotations, terminal output, or SARIF for GitHub Code Scanning.
-
 ```
-Developer opens PR with SQL changes
-        │
-        ▼
-┌─────────────────────────┐
-│  valk-guard scan [path] │
-└────────┬────────────────┘
-         │
-         ▼
-┌─────────────────────────┐     Finds SQL in:
-│  Scanner                │     • *.sql files (RawSQLScanner)
-│                         │     • Go source (GoScanner — go/ast extraction)
-└────────┬────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│  Parser Engine           │     Parses each SQL statement into structured
-│  (valk-postgres-parser)  │     metadata: tables, columns, JOINs, WHERE
-│                          │     clauses, DDL actions, set operations
-└────────┬─────────────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│  Rule Engine             │     Checks parsed metadata against enabled
-│  (VG001..VG008)          │     rules from .valk-guard.yaml
-└────────┬─────────────────┘
-         │
-         ▼
-┌─────────────────────────┐     Output formats:
-│  Reporter                │     • Terminal (pretty, with colors)
-│                          │     • JSON (machine-readable)
-│                          │     • SARIF (GitHub Code Scanning)
-└────────┬─────────────────┘     • Inline PR annotations (::error file=...)
-         │
-         ▼
-   Exit code: 0=pass, 1=violations, 2=config error
+valk-guard scan [paths...]
+        |
+        v
++-------------------------+     Finds SQL in:
+|  Scanner                |     - *.sql files (RawSQLScanner)
+|                         |     - Go source (GoScanner via go/ast)
++--------+----------------+
+         |
+         v
++-------------------------+
+|  Parser Engine          |     Parses each SQL statement into
+|  (valk-postgres-parser) |     structured metadata
++--------+----------------+
+         |
+         v
++-------------------------+
+|  Rule Engine            |     Checks parsed metadata against
+|  (VG001-VG008 active)   |     enabled lint rules
++--------+----------------+
+         |
+         v
++-------------------------+     Output formats:
+|  Reporter               |     - Terminal (colored)
+|                         |     - JSON
+|                         |     - SARIF 2.1.0
++-------------------------+
+
+Exit code: 0 = clean, 1 = findings, 2 = config/runtime error
 ```
 
-## What's Supported
+## Scanners
 
-**SQL parsing** (via valk-postgres-parser):
-- DML: SELECT, INSERT, UPDATE, DELETE, MERGE
-- DDL: DROP TABLE/COLUMN, ALTER TABLE, CREATE/DROP INDEX, TRUNCATE
-- WHERE clause extraction with operator detection
-- JOIN relationship inference
-- CTE, subquery, and set operation support
-- JSONB operator support
+**Raw SQL Scanner** -- Splits `.sql` files on `;` with full awareness of quoted strings, dollar-quoting (`$$...$$`), line comments (`--`), and block comments (`/* */`). Each extracted statement is mapped back to its source file and line number.
 
-**Source code scanning**:
-- Raw SQL files (`.sql`)
-- Go source files — extracts SQL string literals from `db.Query()`, `db.Exec()`, etc. using `go/ast`
-
-## Rules
-
-### DML Rules
-
-| Rule | Name | What it catches | Severity |
-|------|------|-----------------|----------|
-| VG001 | select-star | `SELECT *` in application code | warning |
-| VG002 | missing-where-update | `UPDATE` without a `WHERE` clause | error |
-| VG003 | missing-where-delete | `DELETE` without a `WHERE` clause | error |
-| VG004 | unbounded-select | `SELECT` without `LIMIT` | warning |
-| VG005 | like-leading-wildcard | `LIKE '%...'` — leading wildcard prevents index usage | warning |
-| VG006 | select-for-update-no-where | `SELECT FOR UPDATE` without `WHERE` | error |
-
-### DDL Rules
-
-| Rule | Name | What it catches | Severity |
-|------|------|-----------------|----------|
-| VG007 | destructive-ddl | `DROP TABLE`, `DROP COLUMN`, or `TRUNCATE` in migrations | error |
-| VG008 | non-concurrent-index | `CREATE INDEX` without `CONCURRENTLY` | warning |
+**Go Scanner** -- Walks Go source files using `go/ast` and extracts SQL string literals from database method calls: `Query`, `QueryRow`, `Exec`, `QueryContext`, `ExecContext`, `QueryRowContext`, `Prepare`, `Get`, `Select`, `MustExec`, `NamedExec`, `NamedQuery`. Supports inline disable comments on the line above the call.
 
 ## Configuration
 
@@ -103,50 +116,88 @@ Rules are configured per-project via `.valk-guard.yaml`:
 
 ```yaml
 version: 1
+
+# Per-rule overrides
 rules:
   VG001:
     enabled: true
     severity: warning
   VG004:
     enabled: false
+
+# File patterns to exclude from scanning (supports ** globs)
 exclude:
   - "tests/**"
   - "migrations/seed_*.sql"
+  - "vendor/*"
+  - "*.gen.sql"
 ```
 
-Inline suppression in SQL files:
+### Inline Suppression
+
+Suppress findings for individual statements using disable directives.
+
+In SQL files:
 
 ```sql
 -- valk-guard:disable VG001
 SELECT * FROM users;
+
+-- valk-guard:disable VG002,VG003
+UPDATE users SET active = false;
+
+-- valk-guard:disable
+SELECT * FROM orders;  -- disables all rules for the next statement
 ```
 
-## GitHub Action Usage
+In Go files:
 
-```yaml
-# .github/workflows/valk-guard.yml
-name: Valk Guard
-on: [pull_request]
-jobs:
-  lint-sql:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: valkdb/valk-guard@v1
-        with:
-          config: .valk-guard.yaml
+```go
+// valk-guard:disable VG001
+db.Query("SELECT * FROM users")
 ```
 
-Findings appear as inline annotations on the PR diff. SARIF output integrates with GitHub's Code Scanning dashboard.
+## Built-in Rules
 
-## Roadmap
+| Rule  | Name                       | What it catches                          | Default Severity |
+|-------|----------------------------|------------------------------------------|------------------|
+| VG001 | select-star                | `SELECT *` in application code           | warning          |
+| VG002 | missing-where-update       | `UPDATE` without `WHERE`                 | error            |
+| VG003 | missing-where-delete       | `DELETE` without `WHERE`                 | error            |
+| VG004 | unbounded-select           | `SELECT` without `LIMIT`                 | warning          |
+| VG005 | like-leading-wildcard      | `LIKE '%...'` leading wildcard           | warning          |
+| VG006 | select-for-update-no-where | `SELECT FOR UPDATE` without `WHERE`      | error            |
+| VG007 | destructive-ddl            | `DROP TABLE`, `DROP COLUMN`, `TRUNCATE`  | error            |
+| VG008 | non-concurrent-index       | `CREATE INDEX` without `CONCURRENTLY`    | warning          |
 
-**Stage 1** (current): SQL linting for Go and raw SQL files — DML + DDL rules, CLI, GitHub Action, SARIF output.
+## Future / Roadmap
 
-**Stage 2** (planned): Python SQLAlchemy ORM pattern detection — N+1 query detection, missing eager loads, unbounded `.all()`, raw SQL extraction from `text()`/`execute()`.
+**Next**: Expand scanner coverage (ORM-aware extraction and additional languages) and add more advanced rules (schema-aware checks, lock/index heuristics).
 
-**Stage 3** (planned): Schema-aware analysis, additional language spokes, custom rule authoring.
+**Then**: GitHub Action for PR annotations. Use SARIF output to surface findings directly in pull request diffs.
+
+**Later**: Python SQLAlchemy scanner (detect SQL patterns in ORM code), schema-aware analysis (connect to a live or dumped schema for smarter linting), and custom rule authoring (let users define project-specific rules).
+
+## Development
+
+```bash
+make check        # fmt + vet + lint + test (runs all checks)
+make test         # run tests with -race
+make test-v       # run tests with -race -v (verbose)
+make cover        # generate coverage report
+make lint         # golangci-lint
+make build        # build binary
+make install      # install to $GOPATH/bin
+make clean        # remove binary and coverage artifacts
+make tidy         # go mod tidy
+make fmt          # gofmt + goimports
+make vet          # go vet
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on reporting issues, submitting pull requests, and setting up a development environment.
 
 ## License
 
-Apache 2.0
+Apache 2.0 -- see [LICENSE](LICENSE) for the full text.

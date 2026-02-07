@@ -1,0 +1,19 @@
+# valk-guard configuration
+# Copy to .valk-guard.yaml and customize.
+
+# Output format: terminal, json, sarif
+format: terminal
+
+# File patterns to exclude from scanning
+exclude:
+  - "vendor/*"
+  - "*.gen.sql"
+  - "testdata/*"
+
+# Per-rule overrides
+# rules:
+#   VG001:
+#     enabled: true
+#     severity: error
+#   VG002:
+#     enabled: false

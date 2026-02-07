@@ -1,0 +1,9 @@
+package example
+
+import "database/sql"
+
+func getUsers(db *sql.DB) {
+	db.Query("SELECT id, name FROM users WHERE active = true")
+	db.Exec("INSERT INTO logs (action) VALUES ('test')")
+	db.QueryRow("SELECT count(*) FROM orders")
+}

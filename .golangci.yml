@@ -1,0 +1,53 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - typecheck
+    - misspell
+    - gofmt
+    - goimports
+    - revive
+    - gosec
+    - unconvert
+    - gocritic
+    - prealloc
+    - errorlint
+    - nilerr
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        arguments:
+          - disableStutteringCheck
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  misspell:
+    locale: US
+  errorlint:
+    errorf: true
+    asserts: true
+    comparison: true
+  gosec:
+    excludes:
+      - G101 # false positives on variable names like "token"
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - gocritic
