@@ -38,10 +38,13 @@ Detailed guide: see [`docs/adding-rules.md`](docs/adding-rules.md).
 
 ## Adding a New Scanner
 
-1. Implement the `scanner.Scanner` interface in `scanner/<name>_scanner.go`
-2. Reuse directive parsing/suppression mapping for consistent behavior
-3. Register it in `configuredScanners()` in `cmd/valk-guard/main.go`
-4. Add scanner tests and fixtures under `scanner/` and `testdata/`
+1. Create a subfolder under `scanner/` (e.g. `scanner/myorm/`) with `myorm_scanner.go`
+2. Implement the `scanner.Scanner` interface
+3. Use shared helpers from `scanner/goast.go` (for Go-based scanners) and `scanner.DisabledRulesForLine` for directive support
+4. Register it in `configuredScanners()` in `cmd/valk-guard/main.go`
+5. Add scanner tests in `scanner/myorm/myorm_scanner_test.go` and fixtures under `testdata/`
+
+Existing scanners in subfolders: `scanner/goqu/`, `scanner/sqlalchemy/`.
 
 Detailed guide: see [`docs/adding-scanners.md`](docs/adding-scanners.md).
 

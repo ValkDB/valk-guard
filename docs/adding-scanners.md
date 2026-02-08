@@ -17,15 +17,15 @@ As long as your scanner outputs `SQLStatement`, the rest of the pipeline is reus
 
 Create a new scanner file, for example:
 
-- `scanner/gorm_scanner.go`
+- `scanner/goqu/goqu_scanner.go`
 - `scanner/sqlalchemy_scanner.go`
 
 Implement:
 
 ```go
-type GORMScanner struct{}
+type MyScanner struct{}
 
-func (s *GORMScanner) Scan(paths []string) ([]SQLStatement, error) {
+func (s *MyScanner) Scan(paths []string) ([]SQLStatement, error) {
     // discover source files
     // parse AST / syntax tree
     // extract SQL or SQL-like query text
@@ -53,7 +53,7 @@ Add the scanner in:
 Example:
 
 ```go
-{label: "GORM calls", impl: &scanner.GORMScanner{}},
+{label: "My scanner", impl: &scanner.MyScanner{}},
 ```
 
 No rule/reporter changes are required.

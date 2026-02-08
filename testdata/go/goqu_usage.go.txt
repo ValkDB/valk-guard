@@ -1,0 +1,19 @@
+package example
+
+import (
+	goqu "github.com/doug-martin/goqu/v9"
+)
+
+func queries() {
+	// Should be extracted: goqu.L with raw SQL.
+	goqu.L("SELECT * FROM users")
+
+	// Should be extracted: another SQL literal.
+	goqu.L("DELETE FROM sessions WHERE expired = true")
+
+	// Should NOT be extracted: non-L method call.
+	goqu.From("users").Select("id", "name")
+
+	// valk-guard:disable VG001
+	goqu.L("SELECT * FROM orders")
+}

@@ -1,0 +1,27 @@
+sequenceDiagram
+    participant Dev as Developer
+    participant Git as GitHub / GitLab
+    participant CI as CI Runner
+    participant VG as Valk Guard
+    participant PR as Pull Request
+
+    Dev->>Git: Push Code
+    Git->>CI: Trigger Pipeline
+    CI->>VG: valk-guard scan . --format sarif
+    
+    rect rgb(240, 240, 240)
+        note right of VG: Scanning
+        VG->>VG: Parse Source Files
+        VG->>VG: Extract/Synthesize SQL
+        VG->>VG: Check Rules
+    end
+    
+    alt Issues Found
+        VG-->>CI: Exit Code 1 (Findings)
+        CI->>Git: Upload SARIF Report
+        Git->>PR: Annotate Code with Errors
+        CI-->>Dev: Build Failed (Block Merge)
+    else Clean
+        VG-->>CI: Exit Code 0
+        CI-->>Dev: Build Passed
+    end

@@ -1,0 +1,32 @@
+graph TD
+    subgraph "CLI Entry Point"
+        CLI[valk-guard scan] --> Config[Load Config]
+    end
+
+    subgraph "Scanners"
+        Config --> Scanners{Active Scanners}
+        Scanners -->|Scanner| SQLScanner[Raw SQL Scanner]
+        Scanners -->|Scanner| GoScanner[Go AST Scanner]
+        Scanners -->|Scanner| GoquScanner[Goqu AST Scanner]
+        Scanners -->|Scanner| PyScanner[SQLAlchemy Scanner]
+    end
+
+    subgraph "Analysis Engine"
+        SQLScanner -->|Extracts| SQL[SQL Statements]
+        GoScanner -->|Extracts| SQL
+        GoquScanner -->|Synthesizes| SQL
+        PyScanner -->|Synthesizes| SQL
+        
+        SQL --> Parser[Valk PG Parser]
+        Parser --> AST[Postgres AST]
+        
+        AST --> Rules[Rule Engine]
+        Rules --> Findings[Findings List]
+    end
+
+    subgraph "Reporting"
+        Findings --> Reporters{Format}
+        Reporters -->|Default| Term[Terminal Output]
+        Reporters -->|--format json| JSON[JSON Report]
+        Reporters -->|--format sarif| SARIF[SARIF Report]
+    end
