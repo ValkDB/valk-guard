@@ -17,7 +17,7 @@ graph TD
         GoquScanner -->|Synthesizes| SQL
         PyScanner -->|Synthesizes| SQL
         
-        SQL --> Parser[Valk PG Parser]
+        SQL --> Parser[postgresparser]
         Parser --> AST[Postgres AST]
         
         AST --> Rules[Rule Engine]

@@ -17,20 +17,23 @@ As long as your scanner outputs `SQLStatement`, the rest of the pipeline is reus
 
 Create a new scanner file, for example:
 
-- `scanner/goqu/goqu_scanner.go`
-- `scanner/sqlalchemy_scanner.go`
+- `internal/scanner/goqu/goqu_scanner.go`
+- `internal/scanner/sqlalchemy/sqlalchemy_scanner.go`
 
 Implement:
 
 ```go
 type MyScanner struct{}
 
-func (s *MyScanner) Scan(paths []string) ([]SQLStatement, error) {
-    // discover source files
-    // parse AST / syntax tree
-    // extract SQL or SQL-like query text
-    // map each statement to file + line
-    return nil, nil
+func (s *MyScanner) Scan(ctx context.Context, paths []string) iter.Seq2[SQLStatement, error] {
+    return func(yield func(SQLStatement, error) bool) {
+        // discover source files
+        // parse AST / syntax tree
+        // extract SQL or SQL-like query text
+        // map each statement to file + line
+        // stream each statement via yield(stmt, nil)
+        // on errors, yield(SQLStatement{}, err)
+    }
 }
 ```
 
@@ -40,7 +43,7 @@ For files with comments/directives:
 
 - Split source by lines
 - Use `ParseDirectives(lines)`
-- Attach disables with `disabledRulesForLine(...)`
+- Attach disables with `DisabledRulesForLine(...)`
 
 This keeps behavior consistent with existing SQL/Go scanners.
 
@@ -48,12 +51,12 @@ This keeps behavior consistent with existing SQL/Go scanners.
 
 Add the scanner in:
 
-- `cmd/valk-guard/main.go` via `configuredScanners()`
+- `cmd/valk-guard/main.go` via `collectStatements()`
 
 Example:
 
 ```go
-{label: "My scanner", impl: &scanner.MyScanner{}},
+{name: "my-scanner", impl: &scanner.MyScanner{}, in: inputs.someFiles},
 ```
 
 No rule/reporter changes are required.
@@ -80,6 +83,6 @@ Add scanner tests similar to existing scanner tests:
 Run:
 
 ```bash
-go test ./scanner -v
-go test ./... 
+go test ./internal/scanner -v
+go test ./...
 ```

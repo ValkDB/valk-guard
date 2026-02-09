@@ -1,6 +1,6 @@
 # Binary
-valk-guard
-valk-guard.exe
+/valk-guard
+/valk-guard.exe
 
 # Distribution
 dist/

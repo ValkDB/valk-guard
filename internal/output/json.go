@@ -1,6 +1,7 @@
 package output
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 
@@ -11,7 +12,11 @@ import (
 type JSONReporter struct{}
 
 // Report writes findings as JSON.
-func (r *JSONReporter) Report(w io.Writer, findings []rules.Finding) error {
+func (r *JSONReporter) Report(ctx context.Context, w io.Writer, findings []rules.Finding) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if findings == nil {
 		findings = []rules.Finding{}
 	}

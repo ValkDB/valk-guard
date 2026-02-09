@@ -19,16 +19,10 @@ FILTER_METHODS = {"filter", "filter_by", "where"}
 
 def extract_sql_from_file(filepath):
     """Parse a Python file and extract raw and synthetic SQL strings."""
-    try:
-        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
-            source = f.read()
-    except OSError:
-        return []
+    with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+        source = f.read()
 
-    try:
-        tree = ast.parse(source, filename=filepath)
-    except SyntaxError:
-        return []
+    tree = ast.parse(source, filename=filepath)
 
     results = []
     seen = set()
@@ -620,7 +614,14 @@ def main():
 
     all_results = []
     for filepath in sys.argv[1:]:
-        all_results.extend(extract_sql_from_file(filepath))
+        try:
+            all_results.extend(extract_sql_from_file(filepath))
+        except OSError as exc:
+            print(f"reading python file {filepath}: {exc}", file=sys.stderr)
+            sys.exit(2)
+        except SyntaxError as exc:
+            print(f"parsing python file {filepath}: {exc}", file=sys.stderr)
+            sys.exit(2)
 
     json.dump(all_results, sys.stdout)
 

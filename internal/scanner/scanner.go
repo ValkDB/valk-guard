@@ -1,6 +1,13 @@
 package scanner
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"iter"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // SQLStatement represents a SQL statement extracted from a source file.
 type SQLStatement struct {
@@ -12,22 +19,36 @@ type SQLStatement struct {
 
 // Scanner is the interface for components that find SQL in source files.
 type Scanner interface {
-	// Scan walks the given paths and returns all SQL statements found.
-	Scan(paths []string) ([]SQLStatement, error)
+	// Scan walks the given paths and streams extracted SQL statements.
+	// The second value yields non-nil errors. Implementations must stop work
+	// when the context is canceled.
+	Scan(ctx context.Context, paths []string) iter.Seq2[SQLStatement, error]
 }
 
+// ErrParserFailure wraps errors returned by the SQL parser.
+var ErrParserFailure = errors.New("sql parser failure")
+
 // ParseStatement parses a SQL statement using the postgres parser.
-// It returns nil (no error) if the statement is empty or unparseable,
-// allowing the caller to skip it gracefully.
+// It returns nil (no error) only for empty statements.
 func ParseStatement(sql string) (*postgresparser.ParsedQuery, error) {
 	if sql == "" {
 		return nil, nil
 	}
 	parsed, err := postgresparser.ParseSQL(sql)
 	if err != nil {
-		// Unparseable statements are intentionally skipped so the linter
-		// can continue processing the remaining statements in the file.
-		return nil, nil //nolint:nilerr // intentionally skip unparseable SQL
+		return nil, fmt.Errorf("%w: %w", ErrParserFailure, err)
 	}
 	return parsed, nil
+}
+
+// Collect drains a statement stream into a slice and returns the first error.
+func Collect(seq iter.Seq2[SQLStatement, error]) ([]SQLStatement, error) {
+	var out []SQLStatement
+	for stmt, err := range seq {
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, stmt)
+	}
+	return out, nil
 }

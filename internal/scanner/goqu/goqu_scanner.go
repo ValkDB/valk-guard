@@ -4,10 +4,12 @@
 package goqu
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/token"
-	"sort"
+	"iter"
 	"strconv"
 	"strings"
 	"unicode"
@@ -21,91 +23,135 @@ var knownImportPaths = map[string]bool{
 	"github.com/doug-martin/goqu/v9": true,
 }
 
+// goquBuilderMethods are methods that return a new Dataset or builder,
+// extending the query chain.
+var goquBuilderMethods = map[string]bool{
+	"From":          true,
+	"Select":        true,
+	"Where":         true,
+	"Limit":         true,
+	"Offset":        true,
+	"Order":         true,
+	"GroupBy":       true,
+	"Having":        true,
+	"Join":          true,
+	"InnerJoin":     true,
+	"LeftJoin":      true,
+	"RightJoin":     true,
+	"FullJoin":      true,
+	"Update":        true,
+	"Delete":        true,
+	"Set":           true,
+	"Prepared":      true,
+	"Union":         true,
+	"UnionAll":      true,
+	"Intersect":     true,
+	"IntersectAll":  true,
+	"ClearSelect":   true,
+	"ClearWhere":    true,
+	"ClearOrder":    true,
+	"ClearLimit":    true,
+	"ClearOffset":   true,
+	"Distinct":      true,
+	"ForUpdate":     true,
+	"ForShare":      true,
+	"Returning":     true,
+	"With":          true,
+	"WithRecursive": true,
+}
+
 const syntheticPrefix = "/* valk-guard:synthetic goqu-ast */ "
 
-// GoquScanner extracts SQL from goqu usage in Go source files. For raw SQL,
+// Scanner extracts SQL from goqu usage in Go source files. For raw SQL,
 // it extracts goqu.L("...") literals. For query-builder chains, it generates
 // synthetic SQL that approximates the built statement so existing SQL rules
 // can be reused.
-type GoquScanner struct{}
+type Scanner struct{}
 
 type methodCall struct {
 	Name string
 	Args []ast.Expr
 }
 
-// Scan walks the given paths, finds .go files that import goqu, and extracts
+var errGoquScannerStop = errors.New("goqu scanner stop")
+
+// Scan walks the given paths, finds .go files that import goqu, and streams
 // SQL from literals and builder chains.
-func (s *GoquScanner) Scan(paths []string) ([]scanner.SQLStatement, error) {
-	var results []scanner.SQLStatement
-
-	err := scanner.WalkGoFiles(paths, func(path string, fset *token.FileSet, f *ast.File, src []byte) error {
-		alias := scanner.FindImportAlias(f, knownImportPaths)
-		if alias == "" {
-			return nil // file does not import goqu
-		}
-
-		lines := strings.Split(string(src), "\n")
-		directives := scanner.ParseDirectives(lines)
-		parents := buildParentMap(f)
-
-		ast.Inspect(f, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
+func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQLStatement, error] {
+	return func(yield func(scanner.SQLStatement, error) bool) {
+		err := scanner.WalkGoFiles(ctx, paths, func(path string, fset *token.FileSet, f *ast.File, src []byte) error {
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 
-			if sql := extractGoquLiteral(call, alias); sql != "" {
+			alias := scanner.FindImportAlias(f, knownImportPaths)
+			if alias == "" {
+				return nil // file does not import goqu
+			}
+
+			lines := strings.Split(string(src), "\n")
+			directives := scanner.ParseDirectives(lines)
+			parents := buildParentMap(f)
+			stop := false
+
+			ast.Inspect(f, func(n ast.Node) bool {
+				if stop {
+					return false
+				}
+
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+
+				if sql := extractGoquLiteral(call, alias); sql != "" {
+					pos := fset.Position(call.Pos())
+					line := pos.Line
+					if !yield(scanner.SQLStatement{
+						SQL:      sql,
+						File:     path,
+						Line:     line,
+						Disabled: scanner.DisabledRulesForLine(directives, line),
+					}, nil) {
+						stop = true
+						return false
+					}
+				}
+
+				// Only synthesize from the terminal call in a chain.
+				if isChainedSubCall(call, parents) {
+					return true
+				}
+
+				synthetic := synthesizeFromChain(call, alias)
+				if synthetic == "" {
+					return true
+				}
+
 				pos := fset.Position(call.Pos())
 				line := pos.Line
-				results = append(results, scanner.SQLStatement{
-					SQL:      sql,
+
+				if !yield(scanner.SQLStatement{
+					SQL:      syntheticPrefix + synthetic,
 					File:     path,
 					Line:     line,
 					Disabled: scanner.DisabledRulesForLine(directives, line),
-				})
-			}
-
-			// Only synthesize from the terminal call in a chain.
-			if isChainedSubCall(call, parents) {
+				}, nil) {
+					stop = true
+					return false
+				}
 				return true
-			}
-
-			synthetic := synthesizeFromChain(call, alias)
-			if synthetic == "" {
-				return true
-			}
-
-			pos := fset.Position(call.Pos())
-			line := pos.Line
-
-			results = append(results, scanner.SQLStatement{
-				SQL:      syntheticPrefix + synthetic,
-				File:     path,
-				Line:     line,
-				Disabled: scanner.DisabledRulesForLine(directives, line),
 			})
 
-			return true
+			if stop {
+				return errGoquScannerStop
+			}
+			return nil
 		})
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
+		if err != nil && !errors.Is(err, errGoquScannerStop) {
+			_ = yield(scanner.SQLStatement{}, err)
+		}
 	}
-
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].File != results[j].File {
-			return results[i].File < results[j].File
-		}
-		if results[i].Line != results[j].Line {
-			return results[i].Line < results[j].Line
-		}
-		return results[i].SQL < results[j].SQL
-	})
-
-	return results, nil
 }
 
 func extractGoquLiteral(call *ast.CallExpr, alias string) string {
@@ -608,5 +654,10 @@ func isChainedSubCall(call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {
 		return false
 	}
 	grandCall, ok := grandParent.(*ast.CallExpr)
-	return ok && grandCall.Fun == sel
+	if !ok || grandCall.Fun != sel {
+		return false
+	}
+	// If the next call in the chain is a known builder method,
+	// then the current call is just a sub-component of a larger chain.
+	return goquBuilderMethods[sel.Sel.Name]
 }

@@ -6,7 +6,7 @@ Thanks for your interest in contributing!
 
 1. Fork the repo and clone your fork
 2. Ensure Go 1.25.6+ is installed
-3. Clone [valk-postgres-parser](https://github.com/ValkDB/valk-postgres-parser) alongside this repo (the `go.mod` `replace` directive expects `../valk-postgres-parser`)
+3. Ensure `python3` is available (required for SQLAlchemy scanner tests)
 4. Run `make check` to verify everything builds and passes
 
 ## Development Workflow
@@ -28,9 +28,9 @@ make check        # all of the above
 
 ## Adding a New Rule
 
-1. Create `rules/vgXXX_rule_name.go` implementing the `Rule` interface
-2. Register it in `rules/registry.go` via `DefaultRegistry()`
-3. Add tests in `rules/vgXXX_rule_name_test.go`
+1. Create `internal/rules/vgXXX_rule_name.go` implementing the `Rule` interface
+2. Register it in `internal/rules/registry.go` via `DefaultRegistry()`
+3. Add tests in `internal/rules/vgXXX_rule_name_test.go`
 4. Add a test fixture in `testdata/` if helpful
 5. Document the rule in README.md
 
@@ -38,13 +38,13 @@ Detailed guide: see [`docs/adding-rules.md`](docs/adding-rules.md).
 
 ## Adding a New Scanner
 
-1. Create a subfolder under `scanner/` (e.g. `scanner/myorm/`) with `myorm_scanner.go`
+1. Create a subfolder under `internal/scanner/` (e.g. `internal/scanner/myorm/`) with `myorm_scanner.go`
 2. Implement the `scanner.Scanner` interface
-3. Use shared helpers from `scanner/goast.go` (for Go-based scanners) and `scanner.DisabledRulesForLine` for directive support
-4. Register it in `configuredScanners()` in `cmd/valk-guard/main.go`
-5. Add scanner tests in `scanner/myorm/myorm_scanner_test.go` and fixtures under `testdata/`
+3. Use shared helpers from `internal/scanner/goast.go` (for Go-based scanners) and `scanner.DisabledRulesForLine` for directive support
+4. Register it in `collectStatements()` in `cmd/valk-guard/main.go`
+5. Add scanner tests in `internal/scanner/myorm/myorm_scanner_test.go` and fixtures under `testdata/`
 
-Existing scanners in subfolders: `scanner/goqu/`, `scanner/sqlalchemy/`.
+Existing scanners in subfolders: `internal/scanner/goqu/`, `internal/scanner/sqlalchemy/`.
 
 Detailed guide: see [`docs/adding-scanners.md`](docs/adding-scanners.md).
 

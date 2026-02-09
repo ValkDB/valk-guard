@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 func TestGoScannerExtractsSQL(t *testing.T) {
 	// Copy .go.txt fixture to a temp .go file for parsing.
-	src, err := os.ReadFile(filepath.Join("..", "testdata", "go", "db_query.go.txt"))
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "go", "db_query.go.txt"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
@@ -21,7 +22,7 @@ func TestGoScannerExtractsSQL(t *testing.T) {
 	}
 
 	s := &GoScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -44,7 +45,7 @@ func TestGoScannerExtractsSQL(t *testing.T) {
 }
 
 func TestGoScannerNoSQL(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("..", "testdata", "go", "no_sql.go.txt"))
+	src, err := os.ReadFile(filepath.Join("..", "..", "testdata", "go", "no_sql.go.txt"))
 	if err != nil {
 		t.Fatalf("failed to read fixture: %v", err)
 	}
@@ -56,7 +57,7 @@ func TestGoScannerNoSQL(t *testing.T) {
 	}
 
 	s := &GoScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestGoScannerSkipsNonSQLStringArgs(t *testing.T) {
 	}
 
 	s := &GoScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -115,7 +116,7 @@ func TestGoScannerBacktickStrings(t *testing.T) {
 	}
 
 	s := &GoScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -150,7 +151,7 @@ func TestGoScannerDirectiveOnPrecedingLine(t *testing.T) {
 	}
 
 	s := &GoScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestGoScannerEmptyDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	s := &GoScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -205,7 +206,7 @@ func TestGoScannerContextMethodsUseSecondArg(t *testing.T) {
 	}
 
 	s := &GoScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}

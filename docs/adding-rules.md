@@ -4,7 +4,7 @@ This guide explains how to add a new lint rule to `valk-guard`.
 
 ## Rule Model
 
-Each rule implements the `Rule` interface in `rules/rule.go`:
+Each rule implements the `Rule` interface in `internal/rules/rule.go`:
 
 - `ID() string`: unique ID like `VG009`
 - `Name() string`: machine-friendly name
@@ -16,9 +16,9 @@ Rules run on parsed SQL (`postgresparser.ParsedQuery`) and return zero or more f
 
 ## Step 1: Create the Rule
 
-Add a new file under `rules/`, for example:
+Add a new file under `internal/rules/`, for example:
 
-- `rules/vg009_no_select_distinct.go`
+- `internal/rules/vg009_no_select_distinct.go`
 
 Implement a struct with methods matching `Rule`.
 
@@ -38,7 +38,7 @@ func (r *NoSelectDistinctRule) Check(parsed *postgresparser.ParsedQuery, file st
 
 ## Step 2: Register the Rule
 
-Register the rule in `rules/registry.go` inside `DefaultRegistry()`:
+Register the rule in `internal/rules/registry.go` inside `DefaultRegistry()`:
 
 ```go
 mustRegister(reg, &NoSelectDistinctRule{})
@@ -50,7 +50,7 @@ Registration order controls output order when multiple rules fire.
 
 Create tests in a dedicated file, for example:
 
-- `rules/vg009_no_select_distinct_test.go`
+- `internal/rules/vg009_no_select_distinct_test.go`
 
 Test both:
 

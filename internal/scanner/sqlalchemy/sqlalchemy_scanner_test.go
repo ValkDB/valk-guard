@@ -1,6 +1,7 @@
 package sqlalchemy
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,8 @@ def run(session, User, Address):
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &SQLAlchemyScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -58,8 +59,8 @@ def run(session, User, Address, Roles):
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &SQLAlchemyScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -92,8 +93,8 @@ func TestSQLAlchemyScannerDirectiveSuppressionOnSyntheticSQL(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &SQLAlchemyScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -116,8 +117,8 @@ func TestSQLAlchemyScannerSkipsNonPython(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &SQLAlchemyScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -133,13 +134,34 @@ func TestSQLAlchemyScannerSkipsFilesWithoutKeywords(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &SQLAlchemyScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
 	if len(stmts) != 0 {
 		t.Fatalf("expected 0 statements, got %d", len(stmts))
+	}
+}
+
+func TestSQLAlchemyScannerErrorsOnSyntaxError(t *testing.T) {
+	tmpDir := t.TempDir()
+	pyFile := filepath.Join(tmpDir, "broken.py")
+	content := `import sqlalchemy
+def run(session)
+    session.execute("SELECT 1")
+`
+	if err := os.WriteFile(pyFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	_, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err == nil {
+		t.Fatal("expected syntax error, got nil")
+	}
+	if !strings.Contains(err.Error(), "python ast extraction failed") {
+		t.Fatalf("expected extractor failure error, got %v", err)
 	}
 }
 

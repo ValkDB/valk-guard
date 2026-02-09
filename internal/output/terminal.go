@@ -1,6 +1,7 @@
 package output
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -22,13 +23,21 @@ type TerminalReporter struct {
 }
 
 // Report writes findings to the terminal.
-func (r *TerminalReporter) Report(w io.Writer, findings []rules.Finding) error {
+func (r *TerminalReporter) Report(ctx context.Context, w io.Writer, findings []rules.Finding) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if len(findings) == 0 {
 		_, err := fmt.Fprintln(w, "0 findings")
 		return err
 	}
 
 	for _, f := range findings {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		sev := r.colorize(string(f.Severity), f.Severity)
 		_, err := fmt.Fprintf(w, "%s:%d: %s [%s] %s\n", f.File, f.Line, sev, f.RuleID, f.Message)
 		if err != nil {

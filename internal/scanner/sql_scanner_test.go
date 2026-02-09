@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +10,7 @@ import (
 
 func TestScanSimpleSelect(t *testing.T) {
 	s := &RawSQLScanner{}
-	stmts, err := s.Scan([]string{filepath.Join("..", "testdata", "sql", "simple_select.sql")})
+	stmts, err := Collect(s.Scan(context.Background(), []string{filepath.Join("..", "..", "testdata", "sql", "simple_select.sql")}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestScanSimpleSelect(t *testing.T) {
 
 func TestScanMultiStatement(t *testing.T) {
 	s := &RawSQLScanner{}
-	stmts, err := s.Scan([]string{filepath.Join("..", "testdata", "sql", "multi_statement.sql")})
+	stmts, err := Collect(s.Scan(context.Background(), []string{filepath.Join("..", "..", "testdata", "sql", "multi_statement.sql")}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestScanMultiStatement(t *testing.T) {
 
 func TestScanWithIgnoreDirective(t *testing.T) {
 	s := &RawSQLScanner{}
-	stmts, err := s.Scan([]string{filepath.Join("..", "testdata", "sql", "with_ignore.sql")})
+	stmts, err := Collect(s.Scan(context.Background(), []string{filepath.Join("..", "..", "testdata", "sql", "with_ignore.sql")}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestScanNestedBlockComments(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -110,7 +111,7 @@ $$ LANGUAGE plpgsql;`
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestScanTrailingStatementWithoutSemicolon(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -159,7 +160,7 @@ func TestScanEmptyFile(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -180,7 +181,7 @@ func TestScanSingleQuoteEscaping(t *testing.T) {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	stmts, err := s.Scan([]string{tmpDir})
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestScanSingleQuoteEscaping(t *testing.T) {
 
 func TestScanDirectory(t *testing.T) {
 	s := &RawSQLScanner{}
-	stmts, err := s.Scan([]string{filepath.Join("..", "testdata", "sql")})
+	stmts, err := Collect(s.Scan(context.Background(), []string{filepath.Join("..", "..", "testdata", "sql")}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}

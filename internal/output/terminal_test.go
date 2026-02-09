@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"os"
 	"path/filepath"
@@ -71,7 +72,7 @@ func TestTerminalReporter(t *testing.T) {
 			r := &TerminalReporter{NoColor: tt.noColor}
 			var buf bytes.Buffer
 
-			if err := r.Report(&buf, tt.findings); err != nil {
+			if err := r.Report(context.Background(), &buf, tt.findings); err != nil {
 				t.Fatalf("report error: %v", err)
 			}
 
@@ -100,7 +101,7 @@ func TestTerminalReporterNoColorEnv(t *testing.T) {
 		{RuleID: "VG001", Severity: rules.SeverityError, Message: "test", File: "test.sql", Line: 1},
 	}
 
-	if err := r.Report(&buf, findings); err != nil {
+	if err := r.Report(context.Background(), &buf, findings); err != nil {
 		t.Fatalf("report error: %v", err)
 	}
 
@@ -117,7 +118,7 @@ func TestTerminalReportGolden(t *testing.T) {
 
 	var buf bytes.Buffer
 	r := &TerminalReporter{NoColor: true}
-	if err := r.Report(&buf, findings); err != nil {
+	if err := r.Report(context.Background(), &buf, findings); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,7 +137,7 @@ func TestTerminalReportGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("golden file not found -- run with -update to create: %v", err)
 	}
-	if !bytes.Equal(buf.Bytes(), want) {
+	if !bytes.Equal(normalizeGoldenNewlines(buf.Bytes()), normalizeGoldenNewlines(want)) {
 		t.Errorf("output mismatch with golden file.\nGot:\n%s\nWant:\n%s", buf.String(), string(want))
 	}
 }

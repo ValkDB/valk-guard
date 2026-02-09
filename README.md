@@ -14,7 +14,7 @@
 
 ## What It Does
 
-Valk Guard scans your codebase for SQL -- raw `.sql` files, SQL strings embedded in Go source code, and Python SQLAlchemy usage. Each SQL statement is parsed into structured metadata using [valk-postgres-parser](https://github.com/ValkDB/valk-postgres-parser) (an ANTLR4-based PostgreSQL grammar), then checked against a set of lint rules that catch common performance and safety anti-patterns. Findings are reported as colored terminal output, JSON, or SARIF 2.1.0 for integration with GitHub Code Scanning.
+Valk Guard scans your codebase for SQL -- raw `.sql` files, SQL strings embedded in Go source code, and Python SQLAlchemy usage. Each SQL statement is parsed into structured metadata using [postgresparser](https://github.com/ValkDB/postgresparser) (an ANTLR4-based PostgreSQL grammar), then checked against a set of lint rules that catch common performance and safety anti-patterns. Findings are reported as colored terminal output, JSON, or SARIF 2.1.0 for integration with GitHub Code Scanning.
 
 The goal: catch `SELECT *`, missing `WHERE` clauses, unbounded queries, destructive DDL, and other database footguns in CI before they reach production.
 
@@ -26,20 +26,34 @@ The CLI scaffold, scanning pipeline, reporting layer, and initial rules are impl
 - **Go source scanning** -- extracts SQL string literals from `db.Query`, `db.Exec`, `db.QueryRow`, `db.Prepare`, and other common database method calls via `go/ast`
 - **Goqu scanning** -- extracts raw SQL (`goqu.L("...")`) and generates synthetic SQL from query-builder AST chains (joins, where predicates, limit/update/delete structure)
 - **Python SQLAlchemy scanning** -- extracts raw SQL (`text("...")`, `.execute("...")`) and generates synthetic SQL from ORM/query-builder AST chains (`query/select/join/filter/update/delete`)
-- **PostgreSQL dialect parsing** via [valk-postgres-parser](https://github.com/ValkDB/valk-postgres-parser) (ANTLR4 grammar)
+- **PostgreSQL dialect parsing** via [postgresparser](https://github.com/ValkDB/postgresparser) (ANTLR4 grammar)
 - **Three output formats**: terminal (colored), JSON, SARIF 2.1.0
 - **Inline disable directives** -- `-- valk-guard:disable VG001` in SQL, `// valk-guard:disable VG001` in Go, `# valk-guard:disable VG001` in Python
 - **Per-rule configuration** via `.valk-guard.yaml` (enable/disable individual rules, override severity)
 - **File exclusion patterns** with glob support (including `**` for recursive matching)
-- **`--verbose` mode** for debugging scanner and parser behavior
+- **Structured logging via `log/slog`** with `--log-level` (`debug|info|warn|error`)
+- **Parallel scanner execution** across SQL, Go, Goqu, and SQLAlchemy inputs
+- **End-to-end context cancellation** (graceful `Ctrl+C` handling and timeout-friendly CI behavior)
 - **`--output` flag** to write results directly to a file
+- **Strict parsing/AST behavior**: invalid SQL and unparseable Go/Python source fail the scan with exit code `2`
 - **Exit codes**: `0` = clean, `1` = findings, `2` = config/runtime error
 
 **Current status:** Rules `VG001` through `VG008` are implemented.
 
 ## Installation
 
-Build from source (requires Go 1.25.6+):
+Build from source.
+
+Requirements:
+
+- Go 1.25.6+
+- Python 3 (only required when scanning Python/SQLAlchemy code)
+
+```bash
+go get github.com/valkdb/postgresparser@v1
+```
+
+Then:
 
 ```bash
 git clone https://github.com/ValkDB/valk-guard.git
@@ -66,11 +80,12 @@ valk-guard scan . --format sarif
 # Use a custom config file
 valk-guard scan . --config .valk-guard.yaml
 
-# Enable verbose output for debugging
-valk-guard scan . --verbose
+# Enable debug logs
+valk-guard scan . --log-level debug
 
 # Write results to a file
 valk-guard scan . --format sarif --output results.sarif
+```
 
 ## Examples
 
@@ -98,7 +113,7 @@ graph TD
         GoquScanner -->|Synthesizes| SQL
         PyScanner -->|Synthesizes| SQL
         
-        SQL --> Parser[Valk PG Parser]
+        SQL --> Parser[postgresparser]
         Parser --> AST[Postgres AST]
         
         AST --> Rules[Rule Engine]
@@ -193,7 +208,7 @@ valk-guard scan [paths...]
          v
 +-------------------------+
 |  Parser Engine          |     Parses each SQL statement into
-|  (valk-postgres-parser) |     structured metadata
+|  (postgresparser) |     structured metadata
 +--------+----------------+
          |
          v
@@ -218,9 +233,9 @@ Exit code: 0 = clean, 1 = findings, 2 = config/runtime error
 
 **Go Scanner** -- Walks Go source files using `go/ast` and extracts SQL string literals from database method calls: `Query`, `QueryRow`, `Exec`, `QueryContext`, `ExecContext`, `QueryRowContext`, `Prepare`, `Get`, `Select`, `MustExec`, `NamedExec`, `NamedQuery`. Supports inline disable comments on the line above the call.
 
-**Goqu Scanner** -- Extracts raw SQL from `goqu.L("...")` and synthesizes SQL from goqu method chains (for example `From/Join/Where/Limit/Update/Delete`) so rule checks can run even when no raw SQL literal exists. Synthetic output is marked with `/* valk-guard:synthetic goqu-ast */`. Import-gated: files without a goqu import are skipped. Located in `scanner/goqu/`.
+**Goqu Scanner** -- Extracts raw SQL from `goqu.L("...")` and synthesizes SQL from goqu method chains (for example `From/Join/Where/Limit/Update/Delete`) so rule checks can run even when no raw SQL literal exists. Synthetic output is marked with `/* valk-guard:synthetic goqu-ast */`. Import-gated: files without a goqu import are skipped. Located in `internal/scanner/goqu/`.
 
-**SQLAlchemy Scanner** -- Extracts SQL from `text("...")` and `.execute("...")` calls in Python `.py` files, and also synthesizes SQL from ORM/query-builder chains (`query/select/join/filter/filter_by/update/delete`). Synthetic output is marked with `/* valk-guard:synthetic sqlalchemy-ast */`. Uses `# valk-guard:disable` directives for inline suppression. Located in `scanner/sqlalchemy/`.
+**SQLAlchemy Scanner** -- Extracts SQL from `text("...")` and `.execute("...")` calls in Python `.py` files, and also synthesizes SQL from ORM/query-builder chains (`query/select/join/filter/filter_by/update/delete`). Synthetic output is marked with `/* valk-guard:synthetic sqlalchemy-ast */`. Uses `# valk-guard:disable` directives for inline suppression. Located in `internal/scanner/sqlalchemy/`.
 
 ## Configuration
 
@@ -316,6 +331,7 @@ make vet          # go vet
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on reporting issues, submitting pull requests, and setting up a development environment.
+Community behavior standards are documented in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 

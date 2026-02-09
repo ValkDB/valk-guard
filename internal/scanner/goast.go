@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"context"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -16,12 +18,19 @@ import (
 type GoFileVisitor func(path string, fset *token.FileSet, file *ast.File, src []byte) error
 
 // WalkGoFiles walks the given root paths, finds .go files, parses each into
-// an AST, and invokes fn for every successfully parsed file. Files that fail
-// to parse are silently skipped so the scanner can continue with the rest.
-func WalkGoFiles(paths []string, fn GoFileVisitor) error {
+// an AST, and invokes fn for every successfully parsed file.
+// Read and parse errors are returned with file context.
+func WalkGoFiles(ctx context.Context, paths []string, fn GoFileVisitor) error {
 	for _, root := range paths {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
+				return err
+			}
+			if err := ctx.Err(); err != nil {
 				return err
 			}
 			if d.IsDir() || filepath.Ext(path) != ".go" {
@@ -31,18 +40,18 @@ func WalkGoFiles(paths []string, fn GoFileVisitor) error {
 			fset := token.NewFileSet()
 			src, err := os.ReadFile(path) //nolint:gosec // scanning user-provided source paths
 			if err != nil {
-				return nil //nolint:nilerr // skip unreadable files
+				return fmt.Errorf("reading go file %s: %w", path, err)
 			}
 
 			f, err := parser.ParseFile(fset, path, src, parser.ParseComments)
 			if err != nil {
-				return nil //nolint:nilerr // skip unparseable files
+				return fmt.Errorf("parsing go file %s: %w", path, err)
 			}
 
 			return fn(path, fset, f, src)
 		})
 		if err != nil {
-			return err
+			return fmt.Errorf("walking go paths: %w", err)
 		}
 	}
 	return nil
@@ -89,9 +98,15 @@ func FindImportAlias(file *ast.File, importPaths map[string]bool) string {
 			return imp.Name.Name
 		}
 
-		// Default alias: last segment of the path.
+		// Default alias: last segment of the path, stripping /vN suffixes.
 		parts := strings.Split(unquoted, "/")
-		return parts[len(parts)-1]
+		alias := parts[len(parts)-1]
+		if len(parts) > 1 && strings.HasPrefix(alias, "v") {
+			if _, err := strconv.Atoi(alias[1:]); err == nil {
+				alias = parts[len(parts)-2]
+			}
+		}
+		return alias
 	}
 	return ""
 }

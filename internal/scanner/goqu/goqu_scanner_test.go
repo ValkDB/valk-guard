@@ -1,6 +1,7 @@
 package goqu
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,8 +28,8 @@ func queries() {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &GoquScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -66,8 +67,8 @@ func queries() {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &GoquScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -106,8 +107,8 @@ func queries() {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &GoquScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -137,8 +138,8 @@ func foo() {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	s := &GoquScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}
@@ -151,8 +152,8 @@ func foo() {
 func TestGoquScannerEmptyDir(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	s := &GoquScanner{}
-	stmts, err := s.Scan([]string{tmpDir})
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err != nil {
 		t.Fatalf("scan error: %v", err)
 	}

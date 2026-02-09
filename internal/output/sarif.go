@@ -1,6 +1,7 @@
 package output
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 
@@ -94,7 +95,11 @@ type SARIFReporter struct {
 }
 
 // Report writes findings as SARIF JSON.
-func (r *SARIFReporter) Report(w io.Writer, findings []rules.Finding) error {
+func (r *SARIFReporter) Report(ctx context.Context, w io.Writer, findings []rules.Finding) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	ver := r.Version
 	if ver == "" {
 		ver = "dev"

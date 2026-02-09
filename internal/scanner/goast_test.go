@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -26,7 +27,7 @@ func TestWalkGoFilesFindsGoFiles(t *testing.T) {
 	}
 
 	var visited []string
-	err := WalkGoFiles([]string{tmpDir}, func(path string, fset *token.FileSet, file *ast.File, src []byte) error {
+	err := WalkGoFiles(context.Background(), []string{tmpDir}, func(path string, fset *token.FileSet, file *ast.File, src []byte) error {
 		visited = append(visited, path)
 		return nil
 	})
@@ -42,9 +43,9 @@ func TestWalkGoFilesFindsGoFiles(t *testing.T) {
 	}
 }
 
-// TestWalkGoFilesSkipsUnparseableFiles verifies that files with syntax errors
-// are silently skipped.
-func TestWalkGoFilesSkipsUnparseableFiles(t *testing.T) {
+// TestWalkGoFilesErrorsOnUnparseableFiles verifies that syntax errors
+// are surfaced to callers.
+func TestWalkGoFilesErrorsOnUnparseableFiles(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	badFile := filepath.Join(tmpDir, "bad.go")
@@ -52,17 +53,12 @@ func TestWalkGoFilesSkipsUnparseableFiles(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	var visited int
-	err := WalkGoFiles([]string{tmpDir}, func(path string, fset *token.FileSet, file *ast.File, src []byte) error {
-		visited++
+	err := WalkGoFiles(context.Background(), []string{tmpDir}, func(path string, fset *token.FileSet, file *ast.File, src []byte) error {
+		t.Fatalf("visitor should not be called for unparseable file: %s", path)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("WalkGoFiles error: %v", err)
-	}
-
-	if visited != 0 {
-		t.Errorf("expected 0 visited files for unparseable input, got %d", visited)
+	if err == nil {
+		t.Fatal("expected parse error, got nil")
 	}
 }
 
@@ -114,8 +110,8 @@ import "github.com/doug-martin/goqu/v9"
 
 	paths := map[string]bool{"github.com/doug-martin/goqu/v9": true}
 	alias := FindImportAlias(f, paths)
-	if alias != "v9" {
-		t.Errorf("expected alias 'v9', got %q", alias)
+	if alias != "goqu" {
+		t.Errorf("expected alias 'goqu', got %q", alias)
 	}
 }
 

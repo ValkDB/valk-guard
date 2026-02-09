@@ -2,6 +2,7 @@ package output
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -12,7 +13,7 @@ func TestSARIFReporterEmpty(t *testing.T) {
 	r := &SARIFReporter{}
 	var buf bytes.Buffer
 
-	if err := r.Report(&buf, nil); err != nil {
+	if err := r.Report(context.Background(), &buf, nil); err != nil {
 		t.Fatalf("report error: %v", err)
 	}
 
@@ -56,7 +57,7 @@ func TestSARIFReporterWithFindings(t *testing.T) {
 		},
 	}
 
-	if err := r.Report(&buf, findings); err != nil {
+	if err := r.Report(context.Background(), &buf, findings); err != nil {
 		t.Fatalf("report error: %v", err)
 	}
 

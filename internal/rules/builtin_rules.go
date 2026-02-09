@@ -392,7 +392,114 @@ func hasLeadingWildcardLike(clauses []string) bool {
 // Comments are stripped first to avoid false positives from text like
 // "-- check FOR UPDATE" or "/* FOR UPDATE */".
 func hasForUpdateClause(sql string) bool {
-	return forUpdatePattern.MatchString(stripSQLComments(sql))
+	return forUpdatePattern.MatchString(stripSQLForUpdateCheck(sql))
+}
+
+// stripSQLForUpdateCheck removes comments and quoted segments that may contain
+// arbitrary text so regex checks do not match phrases like "FOR UPDATE" inside
+// string literals or quoted identifiers.
+func stripSQLForUpdateCheck(sql string) string {
+	var b strings.Builder
+	b.Grow(len(sql))
+
+	i := 0
+	for i < len(sql) {
+		// Single-line comment: skip to end of line.
+		if sql[i] == '-' && i+1 < len(sql) && sql[i+1] == '-' {
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+			continue
+		}
+
+		// Block comment: handle nesting.
+		if sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*' {
+			depth := 1
+			i += 2
+			for i < len(sql) && depth > 0 {
+				if sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*' {
+					depth++
+					i += 2
+				} else if sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/' {
+					depth--
+					i += 2
+				} else {
+					if sql[i] == '\n' {
+						b.WriteByte('\n')
+					}
+					i++
+				}
+			}
+			continue
+		}
+
+		// Dollar-quoted string: $$...$$ or $tag$...$tag$.
+		if sql[i] == '$' {
+			tag := scanDollarQuoteTag(sql, i)
+			if tag != "" {
+				i += len(tag)
+				for i < len(sql) {
+					if sql[i] == '\n' {
+						b.WriteByte('\n')
+					}
+					if sql[i] == '$' && strings.HasPrefix(sql[i:], tag) {
+						i += len(tag)
+						break
+					}
+					i++
+				}
+				b.WriteByte(' ')
+				continue
+			}
+		}
+
+		// Single-quoted string literal.
+		if sql[i] == '\'' {
+			i++
+			for i < len(sql) {
+				if sql[i] == '\n' {
+					b.WriteByte('\n')
+				}
+				if sql[i] == '\'' {
+					i++
+					if i < len(sql) && sql[i] == '\'' {
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
+			b.WriteByte(' ')
+			continue
+		}
+
+		// Double-quoted identifier.
+		if sql[i] == '"' {
+			i++
+			for i < len(sql) {
+				if sql[i] == '\n' {
+					b.WriteByte('\n')
+				}
+				if sql[i] == '"' {
+					i++
+					if i < len(sql) && sql[i] == '"' {
+						i++
+						continue
+					}
+					break
+				}
+				i++
+			}
+			b.WriteByte(' ')
+			continue
+		}
+
+		b.WriteByte(sql[i])
+		i++
+	}
+
+	return b.String()
 }
 
 // stripSQLComments removes single-line (--) and block (/* */) comments from
@@ -453,6 +560,30 @@ func stripSQLComments(sql string) string {
 		i++
 	}
 	return b.String()
+}
+
+// scanDollarQuoteTag checks whether sql[pos] starts a valid dollar-quote tag.
+// It returns the full tag token (e.g., "$$" or "$tag$"), or "" if not found.
+func scanDollarQuoteTag(sql string, pos int) string {
+	if pos >= len(sql) || sql[pos] != '$' {
+		return ""
+	}
+	j := pos + 1
+	for j < len(sql) {
+		ch := sql[j]
+		if ch == '$' {
+			return sql[pos : j+1]
+		}
+		if (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			ch == '_' ||
+			(ch >= '0' && ch <= '9' && j > pos+1) {
+			j++
+			continue
+		}
+		break
+	}
+	return ""
 }
 
 // hasFlag reports whether flags contains a specific token, case-insensitively.

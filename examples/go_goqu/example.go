@@ -19,8 +19,7 @@ func main() {
 
 	// VG002: Update without Where
 	goqu.Update("users").
-		Set(goqu.Record{"active": false}).
-		Exec()
+		Set(goqu.Record{"active": false})
 
 	// Valid Query
 	goqu.From("users").

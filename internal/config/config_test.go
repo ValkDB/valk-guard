@@ -19,7 +19,7 @@ func TestDefault(t *testing.T) {
 }
 
 func TestLoadFull(t *testing.T) {
-	cfg, err := Load(filepath.Join("..", "testdata", "config", "full.yaml"))
+	cfg, err := Load(filepath.Join("..", "..", "testdata", "config", "full.yaml"))
 	if err != nil {
 		t.Fatalf("failed to load full config: %v", err)
 	}
@@ -38,7 +38,7 @@ func TestLoadFull(t *testing.T) {
 }
 
 func TestLoadMinimal(t *testing.T) {
-	cfg, err := Load(filepath.Join("..", "testdata", "config", "minimal.yaml"))
+	cfg, err := Load(filepath.Join("..", "..", "testdata", "config", "minimal.yaml"))
 	if err != nil {
 		t.Fatalf("failed to load minimal config: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestLoadMissing(t *testing.T) {
 }
 
 func TestIsRuleEnabled(t *testing.T) {
-	cfg, err := Load(filepath.Join("..", "testdata", "config", "full.yaml"))
+	cfg, err := Load(filepath.Join("..", "..", "testdata", "config", "full.yaml"))
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestIsRuleEnabled(t *testing.T) {
 }
 
 func TestRuleSeverity(t *testing.T) {
-	cfg, err := Load(filepath.Join("..", "testdata", "config", "full.yaml"))
+	cfg, err := Load(filepath.Join("..", "..", "testdata", "config", "full.yaml"))
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
 	}

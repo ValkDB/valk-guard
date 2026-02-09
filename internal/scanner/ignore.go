@@ -24,41 +24,51 @@ func ParseDirectives(lines []string) []Directive {
 	var directives []Directive
 
 	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		var after string
-
-		switch {
-		case strings.HasPrefix(trimmed, "-- valk-guard:disable"):
-			after = strings.TrimSpace(trimmed[len("-- valk-guard:disable"):])
-		case strings.HasPrefix(trimmed, "// valk-guard:disable"):
-			after = strings.TrimSpace(trimmed[len("// valk-guard:disable"):])
-		case strings.HasPrefix(trimmed, "# valk-guard:disable"):
-			after = strings.TrimSpace(trimmed[len("# valk-guard:disable"):])
-		default:
-			continue
-		}
-
-		var ruleIDs []string
-		if after == "" {
-			ruleIDs = []string{DisableAll}
-		} else {
-			for _, part := range strings.Split(after, ",") {
-				id := strings.TrimSpace(part)
-				if id != "" {
-					ruleIDs = append(ruleIDs, id)
-				}
-			}
-		}
-
-		if len(ruleIDs) > 0 {
-			directives = append(directives, Directive{
-				Line:    i + 1, // convert 0-based slice index to 1-based line number
-				RuleIDs: ruleIDs,
-			})
+		if d, ok := ParseDirectiveLine(line, i+1); ok {
+			directives = append(directives, d)
 		}
 	}
 
 	return directives
+}
+
+// ParseDirectiveLine parses a single source line and returns a directive when
+// the line starts with a valk-guard disable comment marker.
+func ParseDirectiveLine(line string, lineNumber int) (Directive, bool) {
+	trimmed := strings.TrimSpace(line)
+	var after string
+
+	switch {
+	case strings.HasPrefix(trimmed, "-- valk-guard:disable"):
+		after = strings.TrimSpace(trimmed[len("-- valk-guard:disable"):])
+	case strings.HasPrefix(trimmed, "// valk-guard:disable"):
+		after = strings.TrimSpace(trimmed[len("// valk-guard:disable"):])
+	case strings.HasPrefix(trimmed, "# valk-guard:disable"):
+		after = strings.TrimSpace(trimmed[len("# valk-guard:disable"):])
+	default:
+		return Directive{}, false
+	}
+
+	var ruleIDs []string
+	if after == "" {
+		ruleIDs = []string{DisableAll}
+	} else {
+		for _, part := range strings.Split(after, ",") {
+			id := strings.TrimSpace(part)
+			if id != "" {
+				ruleIDs = append(ruleIDs, id)
+			}
+		}
+	}
+
+	if len(ruleIDs) == 0 {
+		return Directive{}, false
+	}
+
+	return Directive{
+		Line:    lineNumber,
+		RuleIDs: ruleIDs,
+	}, true
 }
 
 // DisabledRulesForLine returns the rule IDs disabled by directives on

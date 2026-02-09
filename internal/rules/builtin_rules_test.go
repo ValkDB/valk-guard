@@ -272,6 +272,16 @@ func TestSelectForUpdateNoWhereRule(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name:      "for update inside quoted identifier is not a match",
+			sql:       `SELECT 1 AS "FOR UPDATE"`,
+			wantCount: 0,
+		},
+		{
+			name:      "for update inside string literal is not a match",
+			sql:       "SELECT 'FOR UPDATE'",
+			wantCount: 0,
+		},
+		{
 			name:      "for update after block comment is still detected",
 			sql:       "SELECT id FROM users /* comment */ FOR UPDATE",
 			wantCount: 1,
