@@ -11,7 +11,7 @@ import (
 var (
 	// likeLeadingWildcardPattern matches LIKE/ILIKE predicates where the
 	// string literal begins with a wildcard ('%...').
-	likeLeadingWildcardPattern = regexp.MustCompile(`(?is)\b(?:NOT\s+)?I?LIKE\s+E?'[[:space:]]*%`)
+	likeLeadingWildcardPattern = regexp.MustCompile(`(?is)\b(?:NOT\s+)?I?LIKE\s+E?'\s*%`)
 	// forUpdatePattern matches SELECT ... FOR UPDATE locking clauses.
 	forUpdatePattern = regexp.MustCompile(`(?i)\bFOR\s+UPDATE\b`)
 )
@@ -106,13 +106,14 @@ func stripSQLForUpdateCheck(sql string) string {
 			depth := 1
 			i += 2
 			for i < len(sql) && depth > 0 {
-				if sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*' {
+				switch {
+				case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
 					depth++
 					i += 2
-				} else if sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/' {
+				case sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/':
 					depth--
 					i += 2
-				} else {
+				default:
 					if sql[i] == '\n' {
 						b.WriteByte('\n')
 					}
@@ -211,13 +212,14 @@ func stripSQLComments(sql string) string {
 			depth := 1
 			i += 2
 			for i < len(sql) && depth > 0 {
-				if sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*' {
+				switch {
+				case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
 					depth++
 					i += 2
-				} else if sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/' {
+				case sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/':
 					depth--
 					i += 2
-				} else {
+				default:
 					if sql[i] == '\n' {
 						b.WriteByte('\n') // preserve line numbers
 					}
@@ -287,7 +289,11 @@ func hasFlag(flags []string, want string) bool {
 
 // destructiveActionMessage returns a user-facing message for destructive DDL
 // actions and false for non-destructive actions.
-func destructiveActionMessage(action postgresparser.DDLAction) (string, bool) {
+func destructiveActionMessage(action *postgresparser.DDLAction) (string, bool) {
+	if action == nil {
+		return "", false
+	}
+
 	switch action.Type {
 	case postgresparser.DDLDropTable:
 		if action.ObjectName != "" {

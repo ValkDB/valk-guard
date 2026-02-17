@@ -297,6 +297,9 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		}
 
 		applyRule := func(rule rules.Rule) {
+			if !cfg.IsRuleEnabledForEngine(rule.ID(), stmt.Engine) {
+				return
+			}
 			if scanner.IsDisabled(rule.ID(), stmt.Disabled) {
 				return
 			}

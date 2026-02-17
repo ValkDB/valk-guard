@@ -9,11 +9,28 @@ import (
 	"github.com/valkdb/postgresparser"
 )
 
+// Engine identifies where a SQL statement originated.
+type Engine string
+
+const (
+	// EngineUnknown is used when the statement source is not specified.
+	EngineUnknown Engine = ""
+	// EngineSQL represents raw .sql files.
+	EngineSQL Engine = "sql"
+	// EngineGo represents SQL literals extracted from standard Go DB calls.
+	EngineGo Engine = "go"
+	// EngineGoqu represents SQL extracted/synthesized from goqu usage.
+	EngineGoqu Engine = "goqu"
+	// EngineSQLAlchemy represents SQL extracted/synthesized from SQLAlchemy usage.
+	EngineSQLAlchemy Engine = "sqlalchemy"
+)
+
 // SQLStatement represents a SQL statement extracted from a source file.
 type SQLStatement struct {
 	SQL      string   // The raw SQL text.
 	File     string   // Source file path.
 	Line     int      // 1-based line number where the statement starts.
+	Engine   Engine   // Statement source engine (sql/go/goqu/sqlalchemy).
 	Disabled []string // Rule IDs disabled via inline directives.
 }
 
@@ -43,7 +60,7 @@ func ParseStatement(sql string) (*postgresparser.ParsedQuery, error) {
 
 // Collect drains a statement stream into a slice and returns the first error.
 func Collect(seq iter.Seq2[SQLStatement, error]) ([]SQLStatement, error) {
-	var out []SQLStatement
+	out := make([]SQLStatement, 0, 16)
 	for stmt, err := range seq {
 		if err != nil {
 			return nil, err

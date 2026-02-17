@@ -29,7 +29,7 @@ func (r *NonConcurrentIndexRule) Check(parsed *postgresparser.ParsedQuery, file 
 		return nil
 	}
 
-	var findings []Finding
+	findings := make([]Finding, 0, len(parsed.DDLActions))
 	for _, action := range parsed.DDLActions {
 		if action.Type != postgresparser.DDLCreateIndex || hasFlag(action.Flags, "CONCURRENTLY") {
 			continue

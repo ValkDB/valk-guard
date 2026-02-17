@@ -106,6 +106,7 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 			SQL:      stmt,
 			File:     path,
 			Line:     stmtLine,
+			Engine:   EngineSQL,
 			Disabled: DisabledRulesForLine(directives, stmtLine),
 		}) {
 			return errRawSQLScannerStop
@@ -353,17 +354,17 @@ func scanDirectives(path string) ([]Directive, error) {
 	return directives, nil
 }
 
-func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (string, bool, error) {
+func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (tag string, ok bool, err error) {
 	buf := []byte{'$'}
 
 	for {
-		ch, err := reader.ReadByte()
-		if errors.Is(err, io.EOF) {
+		ch, readErr := reader.ReadByte()
+		if errors.Is(readErr, io.EOF) {
 			current.Write(buf)
 			return "", false, nil
 		}
-		if err != nil {
-			return "", false, err
+		if readErr != nil {
+			return "", false, readErr
 		}
 
 		if ch == '$' {
@@ -386,16 +387,16 @@ func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (string, b
 	}
 }
 
-func peekByte(reader *bufio.Reader) (byte, bool, error) {
-	ch, err := reader.ReadByte()
-	if errors.Is(err, io.EOF) {
+func peekByte(reader *bufio.Reader) (b byte, ok bool, err error) {
+	ch, readErr := reader.ReadByte()
+	if errors.Is(readErr, io.EOF) {
 		return 0, false, nil
 	}
-	if err != nil {
-		return 0, false, err
+	if readErr != nil {
+		return 0, false, readErr
 	}
-	if err := reader.UnreadByte(); err != nil {
-		return 0, false, err
+	if unreadErr := reader.UnreadByte(); unreadErr != nil {
+		return 0, false, unreadErr
 	}
 	return ch, true, nil
 }

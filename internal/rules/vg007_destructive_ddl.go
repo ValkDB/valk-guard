@@ -25,9 +25,9 @@ func (r *DestructiveDDLRule) Check(parsed *postgresparser.ParsedQuery, file stri
 		return nil
 	}
 
-	var findings []Finding
+	findings := make([]Finding, 0, len(parsed.DDLActions))
 	for _, action := range parsed.DDLActions {
-		msg, ok := destructiveActionMessage(action)
+		msg, ok := destructiveActionMessage(&action)
 		if !ok {
 			continue
 		}

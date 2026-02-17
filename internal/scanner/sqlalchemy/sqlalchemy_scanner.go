@@ -122,6 +122,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 				SQL:      e.SQL,
 				File:     e.File,
 				Line:     e.Line,
+				Engine:   scanner.EngineSQLAlchemy,
 				Disabled: scanner.DisabledRulesForLine(directives, e.Line),
 			}, nil) {
 				return
@@ -163,7 +164,9 @@ func runPythonExtractor(parent context.Context, files []string) ([]pyResult, err
 	defer os.Remove(tmpScript.Name()) //nolint:errcheck // best-effort cleanup
 
 	if _, err := tmpScript.Write(scriptData); err != nil {
-		tmpScript.Close() //nolint:errcheck
+		if closeErr := tmpScript.Close(); closeErr != nil {
+			return nil, fmt.Errorf("closing temp extractor script after write failure: %w", closeErr)
+		}
 		return nil, err
 	}
 	if err := tmpScript.Close(); err != nil {

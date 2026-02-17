@@ -109,3 +109,43 @@ func TestRunScanInvalidLogLevelExitCode(t *testing.T) {
 		t.Fatalf("expected invalid log level message, got %q", stderr.String())
 	}
 }
+
+func TestRunScanRuleEngineFilter(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	goSrc := strings.Join([]string{
+		"package example",
+		"",
+		"type DB interface { Query(string) }",
+		"",
+		"func run(db DB) {",
+		`	db.Query("SELECT * FROM users")`,
+		"}",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(tmpDir, "query.go"), []byte(goSrc), 0644); err != nil {
+		t.Fatalf("failed to write go fixture: %v", err)
+	}
+
+	cfg := strings.Join([]string{
+		"rules:",
+		"  VG001:",
+		"    engines: [sql]",
+		"  VG004:",
+		"    enabled: false",
+		"",
+	}, "\n")
+	cfgPath := filepath.Join(tmpDir, ".valk-guard.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatalf("failed to write config fixture: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"scan", tmpDir, "--config", cfgPath, "--format", "json"}, &stdout, &stderr)
+	if code != exitSuccess {
+		t.Fatalf("expected exit code %d, got %d (stderr=%q, stdout=%q)", exitSuccess, code, stderr.String(), stdout.String())
+	}
+	if strings.Contains(stdout.String(), `"rule_id"`) {
+		t.Fatalf("expected no findings due to engine filter, got %s", stdout.String())
+	}
+}

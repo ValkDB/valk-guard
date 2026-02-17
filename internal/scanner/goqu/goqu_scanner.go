@@ -111,6 +111,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 						SQL:      sql,
 						File:     path,
 						Line:     line,
+						Engine:   scanner.EngineGoqu,
 						Disabled: scanner.DisabledRulesForLine(directives, line),
 					}, nil) {
 						stop = true
@@ -135,6 +136,7 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 					SQL:      syntheticPrefix + synthetic,
 					File:     path,
 					Line:     line,
+					Engine:   scanner.EngineGoqu,
 					Disabled: scanner.DisabledRulesForLine(directives, line),
 				}, nil) {
 					stop = true
@@ -371,7 +373,7 @@ func joinClause(method string, args []ast.Expr, alias string) string {
 }
 
 func extractSelectColumns(args []ast.Expr, alias string) []string {
-	var columns []string
+	columns := make([]string, 0, len(args))
 	for _, arg := range args {
 		col := columnNameFromExpr(arg, alias, "")
 		if col == "" {
