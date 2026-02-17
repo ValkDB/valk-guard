@@ -1,0 +1,40 @@
+package rules
+
+import "github.com/valkdb/postgresparser"
+
+// SelectForUpdateNoWhereRule detects SELECT FOR UPDATE without WHERE.
+type SelectForUpdateNoWhereRule struct{}
+
+// ID returns the unique rule identifier.
+func (r *SelectForUpdateNoWhereRule) ID() string { return "VG006" }
+
+// Name returns the human-readable rule name.
+func (r *SelectForUpdateNoWhereRule) Name() string { return "select-for-update-no-where" }
+
+// Description explains what this rule checks.
+func (r *SelectForUpdateNoWhereRule) Description() string {
+	return "Detects SELECT FOR UPDATE statements without WHERE."
+}
+
+// DefaultSeverity returns the default severity for this rule.
+func (r *SelectForUpdateNoWhereRule) DefaultSeverity() Severity { return SeverityError }
+
+// Check reports a finding for SELECT FOR UPDATE statements lacking WHERE.
+func (r *SelectForUpdateNoWhereRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+	if parsed == nil || parsed.Command != postgresparser.QueryCommandSelect {
+		return nil
+	}
+	if !hasForUpdateClause(rawSQL) || hasClause(parsed.Where) {
+		return nil
+	}
+	return []Finding{
+		newFinding(
+			r.ID(),
+			r.DefaultSeverity(),
+			"SELECT FOR UPDATE without WHERE may lock too many rows",
+			file,
+			line,
+			rawSQL,
+		),
+	}
+}
