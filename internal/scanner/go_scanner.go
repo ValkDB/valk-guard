@@ -74,6 +74,7 @@ func (s *GoScanner) Scan(ctx context.Context, paths []string) iter.Seq2[SQLState
 					SQL:      sqlArg,
 					File:     path,
 					Line:     line,
+					Engine:   EngineGo,
 					Disabled: DisabledRulesForLine(directives, line),
 				}, nil) {
 					stop = true

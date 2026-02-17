@@ -4,10 +4,6 @@
 
 If you discover a security vulnerability in Valk Guard, please report it responsibly.
 
-**Do not open a public GitHub issue for security vulnerabilities.**
-
-Instead, email: **security@valkdb.com**
-
 Include:
 - Description of the vulnerability
 - Steps to reproduce

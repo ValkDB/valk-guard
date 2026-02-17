@@ -9,12 +9,16 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/valkdb/valk-guard/internal/rules"
+	"github.com/valkdb/valk-guard/internal/scanner"
 )
+
+const ruleEngineAll = "all"
 
 // RuleConfig holds per-rule overrides from the config file.
 type RuleConfig struct {
 	Enabled  *bool          `yaml:"enabled,omitempty"`
 	Severity rules.Severity `yaml:"severity,omitempty"`
+	Engines  []string       `yaml:"engines,omitempty"`
 }
 
 // Config represents the top-level valk-guard configuration.
@@ -77,8 +81,32 @@ func validateConfig(cfg *Config) error {
 			rc.Severity != rules.SeverityInfo {
 			return fmt.Errorf("invalid severity %q for rule %s: must be error, warning, info, or empty", rc.Severity, ruleID)
 		}
+
+		if len(rc.Engines) > 0 {
+			normalized := make([]string, 0, len(rc.Engines))
+			seen := make(map[string]struct{}, len(rc.Engines))
+			for _, engine := range rc.Engines {
+				candidate := normalizeEngine(engine)
+				switch candidate {
+				case ruleEngineAll, string(scanner.EngineSQL), string(scanner.EngineGo), string(scanner.EngineGoqu), string(scanner.EngineSQLAlchemy):
+					if _, exists := seen[candidate]; exists {
+						continue
+					}
+					seen[candidate] = struct{}{}
+					normalized = append(normalized, candidate)
+				default:
+					return fmt.Errorf("invalid engine %q for rule %s: must be one of all, sql, go, goqu, sqlalchemy", engine, ruleID)
+				}
+			}
+			rc.Engines = normalized
+			cfg.Rules[ruleID] = rc
+		}
 	}
 	return nil
+}
+
+func normalizeEngine(engine string) string {
+	return strings.ToLower(strings.TrimSpace(engine))
 }
 
 // IsRuleEnabled returns whether the given rule ID is enabled.
@@ -102,6 +130,26 @@ func (c *Config) RuleSeverity(ruleID string, defaultSev rules.Severity) rules.Se
 		return defaultSev
 	}
 	return rc.Severity
+}
+
+// IsRuleEnabledForEngine reports whether a rule should run for a given scanner engine.
+// If no engines are configured for the rule, it is enabled for all engines.
+func (c *Config) IsRuleEnabledForEngine(ruleID string, engine scanner.Engine) bool {
+	rc, ok := c.Rules[ruleID]
+	if !ok || len(rc.Engines) == 0 {
+		return true
+	}
+	if engine == scanner.EngineUnknown {
+		return true
+	}
+
+	needle := string(engine)
+	for _, allowed := range rc.Engines {
+		if allowed == ruleEngineAll || allowed == needle {
+			return true
+		}
+	}
+	return false
 }
 
 // ShouldExclude returns true if the given file path matches any exclude pattern.

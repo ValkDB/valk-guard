@@ -15,5 +15,6 @@ exclude:
 #   VG001:
 #     enabled: true
 #     severity: error
+#     engines: [all] # all | sql | go | goqu | sqlalchemy
 #   VG002:
 #     enabled: false

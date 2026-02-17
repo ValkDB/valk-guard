@@ -1,32 +1,36 @@
 graph TD
-    subgraph "CLI Entry Point"
-        CLI[valk-guard scan] --> Config[Load Config]
+    subgraph "CLI"
+        CLI_CMD[valk-guard scan] --> CFG[Load Config]
     end
 
-    subgraph "Scanners"
-        Config --> Scanners{Active Scanners}
-        Scanners -->|Scanner| SQLScanner[Raw SQL Scanner]
-        Scanners -->|Scanner| GoScanner[Go AST Scanner]
-        Scanners -->|Scanner| GoquScanner[Goqu AST Scanner]
-        Scanners -->|Scanner| PyScanner[SQLAlchemy Scanner]
+    subgraph "Extraction"
+        CFG --> DISCOVER[Discover .sql/.go/.py Files]
+        DISCOVER --> SQLSCAN[Raw SQL Scanner]
+        DISCOVER --> GOSCAN[Go AST Scanner]
+        DISCOVER --> GOQUSCAN[Goqu Scanner]
+        DISCOVER --> PYSCAN[SQLAlchemy Scanner]
     end
 
-    subgraph "Analysis Engine"
-        SQLScanner -->|Extracts| SQL[SQL Statements]
-        GoScanner -->|Extracts| SQL
-        GoquScanner -->|Synthesizes| SQL
-        PyScanner -->|Synthesizes| SQL
-        
-        SQL --> Parser[postgresparser]
-        Parser --> AST[Postgres AST]
-        
-        AST --> Rules[Rule Engine]
-        Rules --> Findings[Findings List]
+    subgraph "Statements"
+        SQLSCAN --> STMTS[SQLStatement Stream]
+        GOSCAN --> STMTS
+        GOQUSCAN --> STMTS
+        PYSCAN --> STMTS
+        STMTS --> META[Attach file line engine and disable directives]
+    end
+
+    subgraph "Analysis"
+        META --> PARSER[postgresparser ParseSQL]
+        PARSER --> AST[Parsed Query Metadata]
+        CFG --> RULECFG[Rule config enabled severity engines]
+        AST --> RULES[Rule engine VG001 to VG008]
+        RULECFG --> RULES
+        RULES --> FINDINGS[Findings]
     end
 
     subgraph "Reporting"
-        Findings --> Reporters{Format}
-        Reporters -->|Default| Term[Terminal Output]
-        Reporters -->|--format json| JSON[JSON Report]
-        Reporters -->|--format sarif| SARIF[SARIF Report]
+        FINDINGS --> REPORT{Reporter}
+        REPORT --> TERM[Terminal]
+        REPORT --> JSON[JSON]
+        REPORT --> SARIF[SARIF 2 1 0]
     end

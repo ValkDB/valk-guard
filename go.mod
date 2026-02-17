@@ -1,6 +1,5 @@
 module github.com/valkdb/valk-guard
 
-// Go 1.25.6 is required by github.com/valkdb/postgresparser v1.x.
 go 1.25.6
 
 require (

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/valkdb/valk-guard/internal/rules"
+	"github.com/valkdb/valk-guard/internal/scanner"
 )
 
 func TestDefault(t *testing.T) {
@@ -249,5 +250,41 @@ func TestLoadInvalidSeverity(t *testing.T) {
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("expected error for invalid severity, got nil")
+	}
+}
+
+func TestLoadInvalidRuleEngine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad-engine.yaml")
+	data := []byte("rules:\n  VG001:\n    engines: [oracle]\n")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid engine, got nil")
+	}
+}
+
+func TestIsRuleEnabledForEngine(t *testing.T) {
+	cfg := Default()
+	cfg.Rules["VG001"] = RuleConfig{Engines: []string{"goqu", "sqlalchemy"}}
+	cfg.Rules["VG002"] = RuleConfig{Engines: []string{"all"}}
+
+	if !cfg.IsRuleEnabledForEngine("VG001", scanner.EngineGoqu) {
+		t.Fatal("expected VG001 to be enabled for goqu")
+	}
+	if !cfg.IsRuleEnabledForEngine("VG001", scanner.EngineSQLAlchemy) {
+		t.Fatal("expected VG001 to be enabled for sqlalchemy")
+	}
+	if cfg.IsRuleEnabledForEngine("VG001", scanner.EngineSQL) {
+		t.Fatal("expected VG001 to be disabled for raw sql")
+	}
+	if !cfg.IsRuleEnabledForEngine("VG002", scanner.EngineGo) {
+		t.Fatal("expected VG002 with engines=[all] to be enabled")
+	}
+	if !cfg.IsRuleEnabledForEngine("VG999", scanner.EngineSQL) {
+		t.Fatal("expected unknown rule to be enabled by default")
 	}
 }

@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   lint:
@@ -89,16 +90,130 @@ jobs:
         working-directory: valk-guard
         run: go build -o valk-guard ./cmd/valk-guard/
 
-      - name: Scan testdata (verbose)
+      - name: Scan testdata
         working-directory: valk-guard
         run: |
           set +e
-          ./valk-guard scan testdata/ --verbose --format json
+          ./valk-guard scan testdata/ --format json
           code=$?
           set -e
           if [ "$code" -gt 1 ]; then
             exit "$code"
           fi
+
+  pr-review:
+    name: PR Review (Valk Guard)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: valk-guard
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.6'
+          cache-dependency-path: valk-guard/go.sum
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build valk-guard
+        working-directory: valk-guard
+        run: go build -o valk-guard ./cmd/valk-guard/
+
+      - name: Collect changed SQL-related files
+        id: changed
+        working-directory: valk-guard
+        run: |
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+
+          files="$(git diff --name-only --diff-filter=ACMRT "$base_sha" "$head_sha" | grep -E '\.(sql|go|py)$' || true)"
+
+          if [ -z "$files" ]; then
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          printf '%s\n' "$files" > changed-files.txt
+          count="$(wc -l < changed-files.txt | tr -d ' ')"
+          echo "has_files=true" >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Changed files:"
+          cat changed-files.txt
+
+      - name: Run valk-guard on changed files
+        if: steps.changed.outputs.has_files == 'true'
+        working-directory: valk-guard
+        run: |
+          mapfile -t files < changed-files.txt
+
+          set +e
+          ./valk-guard scan "${files[@]}" --format json > valk-guard.json
+          code=$?
+          set -e
+
+          # findings => code 1 (non-blocking for review comments)
+          # failures => code 2+ (block because scanner/runtime/config issue)
+          if [ "$code" -gt 1 ]; then
+            exit "$code"
+          fi
+
+      - uses: reviewdog/action-setup@v1
+        if: steps.changed.outputs.has_files == 'true'
+
+      - name: Convert findings to reviewdog format
+        if: steps.changed.outputs.has_files == 'true'
+        working-directory: valk-guard
+        run: |
+          jq -cr '
+            .[] |
+            {
+              source: {
+                name: "valk-guard",
+                url: "https://github.com/valkdb/valk-guard"
+              },
+              severity: (
+                if .severity == "error" then "ERROR"
+                elif .severity == "warning" then "WARNING"
+                else "INFO"
+                end
+              ),
+              code: { value: .rule_id },
+              message: (.rule_id + ": " + .message),
+              location: {
+                path: .file,
+                range: {
+                  start: { line: .line, column: (.column // 1) },
+                  end:   { line: .line, column: ((.column // 1) + 1) }
+                }
+              }
+            }
+          ' valk-guard.json > valk-guard.rdjsonl
+
+      - name: Post PR review comments
+        if: steps.changed.outputs.has_files == 'true'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: valk-guard
+        run: |
+          if [ ! -s valk-guard.rdjsonl ]; then
+            echo "No valk-guard findings on changed files."
+            exit 0
+          fi
+
+          reviewdog \
+            -f=rdjsonl \
+            -name="valk-guard" \
+            -reporter=github-pr-review \
+            -filter-mode=added \
+            -fail-level=none \
+            < valk-guard.rdjsonl
 
   build:
     name: Build
