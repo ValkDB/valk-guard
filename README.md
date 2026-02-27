@@ -49,7 +49,7 @@ Valk Guard v1 supports all three target sources out of the box:
 ## Installation
 
 ### Requirements
-- Go `1.25.6+`
+- Go `1.25.6`
 - Python `3.x` (only required if scanning SQLAlchemy/Python files)
 
 ### Build From Source (recommended for current v1 work)
@@ -158,53 +158,36 @@ SELECT * FROM orders;
 | VG007 | destructive-ddl            | Detects destructive DDL (`DROP`, `TRUNCATE`, etc.).        | error            |
 | VG008 | non-concurrent-index       | Detects `CREATE INDEX` without `CONCURRENTLY`.             | warning          |
 
-### ORM-Focused Rules (Planned)
-| Planned Code | Name                             | Engine Target      | Intent                                                      |
-|--------------|----------------------------------|--------------------|-------------------------------------------------------------|
-| VG009        | orm-join-fanout-no-limit         | goqu, sqlalchemy   | Flag join-heavy ORM chains that have no limiting strategy.  |
-| VG010        | orm-expensive-order-without-limit| goqu, sqlalchemy   | Flag ordered ORM reads without `LIMIT` on large result sets.|
-
 ## CI / GitHub Actions
-Minimal SARIF workflow (non-blocking annotations):
+Repository workflow behavior:
+
+- Pull requests are scanned on changed `.sql`, `.go`, and `.py` files.
+- Findings are posted as inline PR review comments (reviewdog).
+- Raw findings are exported as a JSON artifact (`valk-guard.json`).
+- Findings (`exit code 1`) are non-blocking; runtime/config failures (`exit code 2+`) fail the job.
+
+Minimal PR-review snippet:
 
 ```yaml
-name: valk-guard
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
 permissions:
   contents: read
-  security-events: write
+  pull-requests: write
 
 jobs:
-  scan:
-    runs-on: ubuntu-latest
+  pr-review:
+    if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - name: Run valk-guard
+        run: ./valk-guard scan "${files[@]}" --format json > valk-guard.json
 
-      - uses: actions/setup-go@v5
+      - name: Upload JSON findings artifact
+        uses: actions/upload-artifact@v4
         with:
-          go-version: '1.25.6'
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Build valk-guard
-        run: go build -o valk-guard ./cmd/valk-guard/
-
-      - name: Run scan (non-blocking)
-        continue-on-error: true
-        run: ./valk-guard scan . --format sarif --output valk-guard.sarif
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: valk-guard.sarif
+          name: valk-guard-pr-json-${{ github.event.pull_request.number }}
+          path: valk-guard.json
 ```
+
+Full workflow details: [`docs/ci-reviewer-mode.md`](docs/ci-reviewer-mode.md)
 
 ## How It Works
 ```text

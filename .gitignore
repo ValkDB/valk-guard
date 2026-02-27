@@ -22,6 +22,8 @@ Thumbs.db
 # Go
 vendor/
 coverage.out
+.gocache/
+.gomodcache/
 
 # Local scratch notes (intentionally not committed)
 tmp/

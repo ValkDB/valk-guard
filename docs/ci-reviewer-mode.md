@@ -2,37 +2,31 @@
 
 Valk Guard is CLI-first and can run locally with no CI integration.
 
-GitHub reviewer mode is optional and uses SARIF so findings appear as Code Scanning annotations in pull requests.
+GitHub reviewer mode is optional and can post inline pull-request review comments via reviewdog.
+The CI job also exports raw findings as a JSON artifact (`valk-guard.json`) for downstream use.
 
 ## Required Permissions
 
 ```yaml
 permissions:
   contents: read
-  security-events: write
-```
-
-Add this only if you also post direct PR comments from a bot:
-
-```yaml
-permissions:
   pull-requests: write
 ```
 
-## Non-Blocking SARIF Workflow
+## Non-Blocking PR Comment Workflow
 
 ```yaml
-- name: Run Valk Guard
-  continue-on-error: true
-  run: valk-guard scan . --format sarif --output valk-guard.sarif
+- name: Run Valk Guard on changed files
+  run: ./valk-guard scan "${files[@]}" --format json > valk-guard.json
 
-- name: Upload SARIF
-  uses: github/codeql-action/upload-sarif@v3
+- name: Upload JSON findings artifact
+  uses: actions/upload-artifact@v4
   with:
-    sarif_file: valk-guard.sarif
+    name: valk-guard-pr-json-${{ github.event.pull_request.number }}
+    path: valk-guard.json
 ```
 
-This keeps CI green while still annotating the PR unless branch protection explicitly requires clean code scanning.
+This keeps CI non-blocking for findings (`exit 1`) while still posting review comments and preserving machine-readable output.
 
 ## Changed-Files-Only Pattern (Recommended for PRs)
 
@@ -41,5 +35,5 @@ Run Valk Guard on PR-diff files (`.sql`, `.go`, `.py`) instead of full-repo scan
 ## Resolution Model
 
 1. Preferred: fix code and push changes; findings disappear on the next scan.
-2. Native GitHub flow: dismiss Code Scanning alerts in the UI when needed.
+2. Export/download `valk-guard.json` from workflow artifacts when external tooling needs machine-readable results.
 3. Comment-command resolution (for example `/ignore`) requires a custom bot with state management.

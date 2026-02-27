@@ -4,9 +4,9 @@ This document defines what must be true for Valk Guard to be considered fully op
 
 ## 1) Runtime Prerequisites
 
-1. Go `1.25.6+` installed.
+1. Go `1.25.6` installed.
 2. Python `3.x` available when scanning SQLAlchemy code.
-3. `postgresparser` dependency pinned to stable target (replace temporary PR branch pin after merge).
+3. `postgresparser` dependency pinned to a stable release version.
 
 ## 2) Core Functional Coverage
 
@@ -38,13 +38,14 @@ See `docs/suppression.md` for suppression strategy details.
 
 ## 5) GitHub PR Reviewer Mode (Optional, Non-Blocking)
 
-1. SARIF output is generated in CI.
-2. SARIF is uploaded via `github/codeql-action/upload-sarif`.
-3. Workflow permissions include:
+1. JSON findings output is generated in CI (`valk-guard.json`).
+2. JSON findings are uploaded as a workflow artifact.
+3. PR review comments are posted from findings (reviewdog mode).
+4. Workflow permissions include:
    - `contents: read`
-   - `security-events: write`
-4. Workflow is non-blocking unless intentionally enforced by branch protection.
-5. Preferred PR behavior: changed-files-only scanning for `.sql`, `.go`, `.py`.
+   - `pull-requests: write`
+5. Workflow is non-blocking unless intentionally enforced by branch protection.
+6. Preferred PR behavior: changed-files-only scanning for `.sql`, `.go`, `.py`.
 
 See `docs/ci-reviewer-mode.md` for workflow details.
 
@@ -64,4 +65,4 @@ valk-guard scan . --format sarif --output valk-guard.sarif
 Valk Guard is "100% ready" when all checklist items above are satisfied in both:
 
 1. Local CLI usage (no CI required).
-2. GitHub Actions reviewer mode (SARIF annotations visible on PRs).
+2. GitHub Actions reviewer mode (PR comments visible and JSON artifacts exported).

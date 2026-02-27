@@ -51,7 +51,7 @@ This keeps behavior consistent with existing SQL/Go scanners.
 
 Add the scanner in:
 
-- `cmd/valk-guard/main.go` via `collectStatements()`
+- `cmd/valk-guard/main.go` by adding to the scanner list in `collectAndAnalyze()`
 
 Example:
 

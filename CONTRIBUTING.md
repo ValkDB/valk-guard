@@ -5,7 +5,7 @@ Thanks for your interest in contributing!
 ## Getting Started
 
 1. Fork the repo and clone your fork
-2. Ensure Go 1.25.6+ is installed
+2. Ensure Go 1.25.6 is installed
 3. Ensure `python3` is available (required for SQLAlchemy scanner tests)
 4. Run `make check` to verify everything builds and passes
 
@@ -41,7 +41,7 @@ Detailed guide: see [`docs/adding-rules.md`](docs/adding-rules.md).
 1. Create a subfolder under `internal/scanner/` (e.g. `internal/scanner/myorm/`) with `myorm_scanner.go`
 2. Implement the `scanner.Scanner` interface
 3. Use shared helpers from `internal/scanner/goast.go` (for Go-based scanners) and `scanner.DisabledRulesForLine` for directive support
-4. Register it in `collectStatements()` in `cmd/valk-guard/main.go`
+4. Register it in the scanner list inside `collectAndAnalyze()` in `cmd/valk-guard/main.go`
 5. Add scanner tests in `internal/scanner/myorm/myorm_scanner_test.go` and fixtures under `testdata/`
 
 Existing scanners in subfolders: `internal/scanner/goqu/`, `internal/scanner/sqlalchemy/`.

@@ -88,7 +88,7 @@ jobs:
 
       - name: Build valk-guard
         working-directory: valk-guard
-        run: go build -o valk-guard ./cmd/valk-guard/
+        run: go build -ldflags "-s -w -X main.version=${GITHUB_SHA}" -o valk-guard ./cmd/valk-guard/
 
       - name: Scan testdata
         working-directory: valk-guard
@@ -123,7 +123,11 @@ jobs:
 
       - name: Build valk-guard
         working-directory: valk-guard
-        run: go build -o valk-guard ./cmd/valk-guard/
+        run: go build -ldflags "-s -w -X main.version=${GITHUB_SHA}" -o valk-guard ./cmd/valk-guard/
+
+      - name: Initialize valk-guard JSON report
+        working-directory: valk-guard
+        run: echo "[]" > valk-guard.json
 
       - name: Collect changed SQL-related files
         id: changed
@@ -163,6 +167,14 @@ jobs:
           if [ "$code" -gt 1 ]; then
             exit "$code"
           fi
+
+      - name: Upload valk-guard JSON report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: valk-guard-pr-json-${{ github.event.pull_request.number }}
+          path: valk-guard/valk-guard.json
+          if-no-files-found: error
 
       - uses: reviewdog/action-setup@v1
         if: steps.changed.outputs.has_files == 'true'
@@ -241,7 +253,7 @@ jobs:
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          go build -o dist/valk-guard-${GOOS}-${GOARCH}${ext} ./cmd/valk-guard/
+          go build -ldflags "-s -w -X main.version=${GITHUB_SHA}" -o dist/valk-guard-${GOOS}-${GOARCH}${ext} ./cmd/valk-guard/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
