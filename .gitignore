@@ -22,8 +22,14 @@ Thumbs.db
 # Go
 vendor/
 coverage.out
+*.test
+*.prof
 .gocache/
 .gomodcache/
+
+# Python
+__pycache__/
+*.pyc
 
 # Local scratch notes (intentionally not committed)
 tmp/

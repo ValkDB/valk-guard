@@ -4,6 +4,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/ValkDB/valk-guard)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/valkdb/valk-guard)](https://goreportcard.com/report/github.com/valkdb/valk-guard)
+[![Go Reference](https://pkg.go.dev/badge/github.com/valkdb/valk-guard.svg)](https://pkg.go.dev/github.com/valkdb/valk-guard)
 
 CI performance linter for application SQL.
 
@@ -196,31 +197,25 @@ jobs:
 Full workflow details: [`docs/ci-reviewer-mode.md`](docs/ci-reviewer-mode.md)
 
 ## How It Works
-```text
-Source Files (.sql / .go / .py)
-          |
-          v
-Scanners
-- RawSQLScanner
-- GoScanner (go/ast)
-- Goqu scanner (raw + synthetic SQL)
-- SQLAlchemy scanner (raw + synthetic SQL)
-          |
-          v
-SQL Statements + file/line mapping
-(synthetic statements are tagged for goqu/sqlalchemy)
-          |
-          v
-postgresparser
-          |
-          v
-Parsed query metadata
-          |
-          v
-Rule Engine (VG001-VG008)
-          |
-          v
-Reporters: terminal | json | sarif
+```mermaid
+graph TD
+    A[Source Files] --> B{File Type}
+    B -->|.sql| C[Raw SQL Scanner]
+    B -->|.go| D[Go AST Scanner]
+    B -->|.go goqu| E[Goqu Scanner]
+    B -->|.py| F[SQLAlchemy Scanner]
+
+    C --> G[SQL Statements + file/line mapping]
+    D --> G
+    E --> G
+    F --> G
+
+    G --> H[postgresparser]
+    H --> I[Rule Engine VG001-VG008]
+    I --> J{Output Format}
+    J -->|terminal| K[Human Readable]
+    J -->|json| L[Machine Readable]
+    J -->|sarif| M[GitHub Code Scanning]
 ```
 
 ## Development

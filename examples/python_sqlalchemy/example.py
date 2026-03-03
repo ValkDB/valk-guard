@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 from models import User
 
-engine = create_engine("postgresql://user:pass@localhost/db")
+engine = create_engine("postgresql://localhost/example")
 Session = sessionmaker(bind=engine)
 session = Session()
 

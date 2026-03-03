@@ -346,10 +346,14 @@ func fanOutScanners(
 	var wg sync.WaitGroup
 
 	for _, sc := range active {
-		sc := sc
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					setFirstErr(fmt.Errorf("scanner %s panicked: %v", sc.name, r))
+				}
+			}()
 
 			emitted := 0
 			for stmt, err := range sc.impl.Scan(scanCtx, sc.in) {

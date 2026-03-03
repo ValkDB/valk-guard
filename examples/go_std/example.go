@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	db, err := sql.Open("postgres", "postgres://user:pass@localhost/db")
+	db, err := sql.Open("postgres", "postgres://localhost/example?sslmode=disable")
 	if err != nil {
 		log.Fatal(err)
 	}
