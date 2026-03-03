@@ -172,7 +172,7 @@ jobs:
 
       - name: Upload valk-guard JSON report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: valk-guard-pr-json-${{ github.event.pull_request.number }}
           path: valk-guard/valk-guard.json
@@ -258,7 +258,7 @@ jobs:
           go build -ldflags "-s -w -X main.version=${GITHUB_SHA}" -o dist/valk-guard-${GOOS}-${GOARCH}${ext} ./cmd/valk-guard/
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: valk-guard-${{ matrix.goos }}-${{ matrix.goarch }}
           path: valk-guard/dist/
