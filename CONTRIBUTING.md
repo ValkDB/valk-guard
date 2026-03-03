@@ -62,6 +62,12 @@ Open an issue on GitHub with:
 - Steps to reproduce
 - Go version and OS
 
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+By participating, you are expected to uphold this code. Please report unacceptable
+behavior to **conduct@valkdb.com**.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the Apache 2.0 License.

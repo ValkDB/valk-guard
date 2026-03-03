@@ -105,6 +105,8 @@ func validateConfig(cfg *Config) error {
 	return nil
 }
 
+// normalizeEngine trims whitespace and lowercases an engine string to produce
+// a canonical form suitable for comparison against known engine identifiers.
 func normalizeEngine(engine string) string {
 	return strings.ToLower(strings.TrimSpace(engine))
 }

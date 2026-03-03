@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/valkdb/valk-guard/internal/rules"
 	"github.com/valkdb/valk-guard/internal/scanner"
+	"github.com/valkdb/valk-guard/internal/scannertest"
 )
 
 func TestSQLAlchemyScannerExtractsRawAndSyntheticSQL(t *testing.T) {
@@ -34,10 +34,10 @@ def run(session, User, Address):
 	if len(stmts) < 2 {
 		t.Fatalf("expected at least 2 statements, got %d: %+v", len(stmts), stmts)
 	}
-	if !hasSQL(stmts, "SELECT * FROM users") {
+	if !scannertest.HasSQL(stmts, "SELECT * FROM users") {
 		t.Fatalf("expected raw execute(text(...)) SQL to be extracted")
 	}
-	if !hasSQLContaining(stmts, `/* valk-guard:synthetic sqlalchemy-ast */ SELECT * FROM "User" JOIN "Address" ON 1=1`) {
+	if !scannertest.HasSQLContaining(stmts, `/* valk-guard:synthetic sqlalchemy-ast */ SELECT * FROM "User" JOIN "Address" ON 1=1`) {
 		t.Fatalf("expected synthetic SQL with JOIN from query builder, got %+v", stmts)
 	}
 }
@@ -66,7 +66,7 @@ def run(session, User, Address, Roles):
 		t.Fatalf("scan error: %v", err)
 	}
 
-	findingsByRule := collectFindingsByRule(t, stmts)
+	findingsByRule := scannertest.CollectFindingsByRule(t, stmts)
 	requiredRules := []string{"VG001", "VG002", "VG003", "VG004", "VG005", "VG006"}
 	for _, ruleID := range requiredRules {
 		if findingsByRule[ruleID] == 0 {
@@ -74,13 +74,13 @@ def run(session, User, Address, Roles):
 		}
 	}
 
-	if !hasSQLContaining(stmts, `JOIN "Address" ON 1=1`) {
+	if !scannertest.HasSQLContaining(stmts, `JOIN "Address" ON 1=1`) {
 		t.Fatalf("expected JOIN to be preserved in synthetic SQL, got %+v", stmts)
 	}
-	if !hasSQLContaining(stmts, `"Address"."street" LIKE '%Main%'`) {
+	if !scannertest.HasSQLContaining(stmts, `"Address"."street" LIKE '%Main%'`) {
 		t.Fatalf("expected LIKE predicate to be preserved in synthetic SQL, got %+v", stmts)
 	}
-	if !hasSQLContaining(stmts, "FOR UPDATE") {
+	if !scannertest.HasSQLContaining(stmts, "FOR UPDATE") {
 		t.Fatalf("expected FOR UPDATE to be preserved in synthetic SQL, got %+v", stmts)
 	}
 }
@@ -167,47 +167,4 @@ def run(session)
 	if !strings.Contains(err.Error(), "python ast extraction failed") {
 		t.Fatalf("expected extractor failure error, got %v", err)
 	}
-}
-
-func hasSQL(stmts []scanner.SQLStatement, want string) bool {
-	for _, stmt := range stmts {
-		if stmt.SQL == want {
-			return true
-		}
-	}
-	return false
-}
-
-func hasSQLContaining(stmts []scanner.SQLStatement, want string) bool {
-	for _, stmt := range stmts {
-		if strings.Contains(stmt.SQL, want) {
-			return true
-		}
-	}
-	return false
-}
-
-func collectFindingsByRule(t *testing.T, stmts []scanner.SQLStatement) map[string]int {
-	t.Helper()
-
-	findingsByRule := make(map[string]int)
-	reg := rules.DefaultRegistry()
-
-	for _, stmt := range stmts {
-		parsed, err := scanner.ParseStatement(stmt.SQL)
-		if err != nil {
-			t.Fatalf("failed to parse SQL %q: %v", stmt.SQL, err)
-		}
-		if parsed == nil {
-			continue
-		}
-		for _, rule := range reg.All() {
-			finds := rule.Check(parsed, stmt.File, stmt.Line, stmt.SQL)
-			if len(finds) > 0 {
-				findingsByRule[rule.ID()] += len(finds)
-			}
-		}
-	}
-
-	return findingsByRule
 }

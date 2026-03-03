@@ -42,8 +42,7 @@ when an individual is officially representing the project in public spaces.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers via GitHub issues marked as confidential or by
-contacting the ValkDB maintainers directly.
+reported by contacting the project team at **conduct@valkdb.com**.
 
 All complaints will be reviewed and investigated promptly and fairly.
 

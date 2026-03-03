@@ -75,6 +75,17 @@ func (s *RawSQLScanner) Scan(ctx context.Context, paths []string) iter.Seq2[SQLS
 	}
 }
 
+// sqlScanState holds all mutable state threaded through the SQL scanner loop.
+type sqlScanState struct {
+	current    strings.Builder
+	line       int
+	startLine  int
+	state      int
+	blockDepth int
+	dollarTag  string
+	tagWindow  []byte
+}
+
 // scanSQLFile streams a SQL file and splits it into individual statements
 // while respecting semicolons inside strings and comments.
 func scanSQLFile(ctx context.Context, path string, directives []Directive, yield func(SQLStatement) bool) error {
@@ -85,14 +96,10 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 	defer f.Close() //nolint:errcheck // best-effort close
 
 	reader := bufio.NewReader(f)
-	var current strings.Builder
-
-	line := 1
-	startLine := 0
-	state := scanStateNormal
-	blockDepth := 0
-	dollarTag := ""
-	tagWindow := make([]byte, 0, 16)
+	ss := &sqlScanState{
+		line:      1,
+		tagWindow: make([]byte, 0, 16),
+	}
 
 	emitStatement := func(sql string, stmtLine int) error {
 		stmt := strings.TrimSpace(sql)
@@ -100,7 +107,7 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 			return nil
 		}
 		if stmtLine == 0 {
-			stmtLine = line
+			stmtLine = ss.line
 		}
 		if !yield(SQLStatement{
 			SQL:      stmt,
@@ -127,201 +134,226 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 			return fmt.Errorf("reading sql file %s: %w", path, readErr)
 		}
 
-		switch state {
+		switch ss.state {
 		case scanStateNormal:
-			if ch == '\n' {
-				current.WriteByte(ch)
-				line++
-				continue
+			if err := handleNormalState(reader, ss, ch, path, emitStatement); err != nil {
+				return err
 			}
-
-			if ch == ';' {
-				if err := emitStatement(current.String(), startLine); err != nil {
-					return err
-				}
-				current.Reset()
-				startLine = 0
-				continue
-			}
-
-			if ch == '-' {
-				next, ok, err := peekByte(reader)
-				if err != nil {
-					return fmt.Errorf("reading sql file %s: %w", path, err)
-				}
-				if ok && next == '-' {
-					if startLine == 0 {
-						startLine = line
-					}
-					current.WriteByte(ch)
-					_, _ = reader.ReadByte()
-					current.WriteByte(next)
-					state = scanStateLineComment
-					continue
-				}
-			}
-
-			if ch == '/' {
-				next, ok, err := peekByte(reader)
-				if err != nil {
-					return fmt.Errorf("reading sql file %s: %w", path, err)
-				}
-				if ok && next == '*' {
-					if startLine == 0 {
-						startLine = line
-					}
-					current.WriteByte(ch)
-					_, _ = reader.ReadByte()
-					current.WriteByte(next)
-					state = scanStateBlockComment
-					blockDepth = 1
-					continue
-				}
-			}
-
-			if ch == '\'' {
-				if startLine == 0 {
-					startLine = line
-				}
-				current.WriteByte(ch)
-				state = scanStateSingleQuote
-				continue
-			}
-
-			if ch == '"' {
-				if startLine == 0 {
-					startLine = line
-				}
-				current.WriteByte(ch)
-				state = scanStateDoubleQuote
-				continue
-			}
-
-			if ch == '$' {
-				if startLine == 0 {
-					startLine = line
-				}
-				tag, ok, err := consumeDollarTag(reader, &current)
-				if err != nil {
-					return fmt.Errorf("reading sql file %s: %w", path, err)
-				}
-				if ok {
-					state = scanStateDollarQuote
-					dollarTag = tag
-					tagWindow = tagWindow[:0]
-				}
-				continue
-			}
-
-			if startLine == 0 && !isSpace(ch) {
-				startLine = line
-			}
-			current.WriteByte(ch)
 
 		case scanStateLineComment:
-			current.WriteByte(ch)
+			ss.current.WriteByte(ch)
 			if ch == '\n' {
-				line++
-				state = scanStateNormal
+				ss.line++
+				ss.state = scanStateNormal
 			}
 
 		case scanStateBlockComment:
-			current.WriteByte(ch)
-			if ch == '\n' {
-				line++
-			}
-
-			if ch == '/' {
-				next, ok, err := peekByte(reader)
-				if err != nil {
-					return fmt.Errorf("reading sql file %s: %w", path, err)
-				}
-				if ok && next == '*' {
-					_, _ = reader.ReadByte()
-					current.WriteByte(next)
-					blockDepth++
-				}
-				continue
-			}
-
-			if ch == '*' {
-				next, ok, err := peekByte(reader)
-				if err != nil {
-					return fmt.Errorf("reading sql file %s: %w", path, err)
-				}
-				if ok && next == '/' {
-					_, _ = reader.ReadByte()
-					current.WriteByte(next)
-					blockDepth--
-					if blockDepth == 0 {
-						state = scanStateNormal
-					}
-				}
+			if err := handleBlockCommentState(reader, ss, ch, path); err != nil {
+				return err
 			}
 
 		case scanStateSingleQuote:
-			current.WriteByte(ch)
-			if ch == '\n' {
-				line++
+			if err := handleQuoteState(reader, ss, ch, '\'', path); err != nil {
+				return err
 			}
-			if ch != '\'' {
-				continue
-			}
-
-			next, ok, err := peekByte(reader)
-			if err != nil {
-				return fmt.Errorf("reading sql file %s: %w", path, err)
-			}
-			if ok && next == '\'' {
-				_, _ = reader.ReadByte()
-				current.WriteByte(next)
-				continue
-			}
-			state = scanStateNormal
 
 		case scanStateDoubleQuote:
-			current.WriteByte(ch)
-			if ch == '\n' {
-				line++
+			if err := handleQuoteState(reader, ss, ch, '"', path); err != nil {
+				return err
 			}
-			if ch != '"' {
-				continue
-			}
-
-			next, ok, err := peekByte(reader)
-			if err != nil {
-				return fmt.Errorf("reading sql file %s: %w", path, err)
-			}
-			if ok && next == '"' {
-				_, _ = reader.ReadByte()
-				current.WriteByte(next)
-				continue
-			}
-			state = scanStateNormal
 
 		case scanStateDollarQuote:
-			current.WriteByte(ch)
+			ss.current.WriteByte(ch)
 			if ch == '\n' {
-				line++
+				ss.line++
 			}
-			tagWindow = append(tagWindow, ch)
-			if len(tagWindow) > len(dollarTag) {
-				tagWindow = tagWindow[1:]
+			ss.tagWindow = append(ss.tagWindow, ch)
+			if len(ss.tagWindow) > len(ss.dollarTag) {
+				ss.tagWindow = ss.tagWindow[1:]
 			}
-			if len(tagWindow) == len(dollarTag) && string(tagWindow) == dollarTag {
-				state = scanStateNormal
-				tagWindow = tagWindow[:0]
+			if len(ss.tagWindow) == len(ss.dollarTag) && string(ss.tagWindow) == ss.dollarTag {
+				ss.state = scanStateNormal
+				ss.tagWindow = ss.tagWindow[:0]
 			}
 		}
 	}
 
-	if err := emitStatement(current.String(), startLine); err != nil {
+	if err := emitStatement(ss.current.String(), ss.startLine); err != nil {
 		return err
 	}
 
 	return nil
 }
 
+// handleNormalState processes one byte while in the normal (unquoted) scan
+// state, transitioning to comment, string, or dollar-quote states as needed.
+// It delegates statement emission to emitStatement.
+func handleNormalState(
+	reader *bufio.Reader,
+	ss *sqlScanState,
+	ch byte,
+	path string,
+	emitStatement func(string, int) error,
+) error {
+	if ch == '\n' {
+		ss.current.WriteByte(ch)
+		ss.line++
+		return nil
+	}
+
+	if ch == ';' {
+		if err := emitStatement(ss.current.String(), ss.startLine); err != nil {
+			return err
+		}
+		ss.current.Reset()
+		ss.startLine = 0
+		return nil
+	}
+
+	if ch == '-' {
+		next, ok, err := peekByte(reader)
+		if err != nil {
+			return fmt.Errorf("reading sql file %s: %w", path, err)
+		}
+		if ok && next == '-' {
+			if ss.startLine == 0 {
+				ss.startLine = ss.line
+			}
+			ss.current.WriteByte(ch)
+			_, _ = reader.ReadByte()
+			ss.current.WriteByte(next)
+			ss.state = scanStateLineComment
+			return nil
+		}
+	}
+
+	if ch == '/' {
+		next, ok, err := peekByte(reader)
+		if err != nil {
+			return fmt.Errorf("reading sql file %s: %w", path, err)
+		}
+		if ok && next == '*' {
+			if ss.startLine == 0 {
+				ss.startLine = ss.line
+			}
+			ss.current.WriteByte(ch)
+			_, _ = reader.ReadByte()
+			ss.current.WriteByte(next)
+			ss.state = scanStateBlockComment
+			ss.blockDepth = 1
+			return nil
+		}
+	}
+
+	if ch == '\'' {
+		if ss.startLine == 0 {
+			ss.startLine = ss.line
+		}
+		ss.current.WriteByte(ch)
+		ss.state = scanStateSingleQuote
+		return nil
+	}
+
+	if ch == '"' {
+		if ss.startLine == 0 {
+			ss.startLine = ss.line
+		}
+		ss.current.WriteByte(ch)
+		ss.state = scanStateDoubleQuote
+		return nil
+	}
+
+	if ch == '$' {
+		if ss.startLine == 0 {
+			ss.startLine = ss.line
+		}
+		tag, ok, err := consumeDollarTag(reader, &ss.current)
+		if err != nil {
+			return fmt.Errorf("reading sql file %s: %w", path, err)
+		}
+		if ok {
+			ss.state = scanStateDollarQuote
+			ss.dollarTag = tag
+			ss.tagWindow = ss.tagWindow[:0]
+		}
+		return nil
+	}
+
+	if ss.startLine == 0 && !isSpace(ch) {
+		ss.startLine = ss.line
+	}
+	ss.current.WriteByte(ch)
+	return nil
+}
+
+// handleBlockCommentState processes one byte while inside a /* ... */ block
+// comment, tracking nesting depth and transitioning back to normal when the
+// comment closes.
+func handleBlockCommentState(reader *bufio.Reader, ss *sqlScanState, ch byte, path string) error {
+	ss.current.WriteByte(ch)
+	if ch == '\n' {
+		ss.line++
+	}
+
+	if ch == '/' {
+		next, ok, err := peekByte(reader)
+		if err != nil {
+			return fmt.Errorf("reading sql file %s: %w", path, err)
+		}
+		if ok && next == '*' {
+			_, _ = reader.ReadByte()
+			ss.current.WriteByte(next)
+			ss.blockDepth++
+		}
+		return nil
+	}
+
+	if ch == '*' {
+		next, ok, err := peekByte(reader)
+		if err != nil {
+			return fmt.Errorf("reading sql file %s: %w", path, err)
+		}
+		if ok && next == '/' {
+			_, _ = reader.ReadByte()
+			ss.current.WriteByte(next)
+			ss.blockDepth--
+			if ss.blockDepth == 0 {
+				ss.state = scanStateNormal
+			}
+		}
+	}
+
+	return nil
+}
+
+// handleQuoteState processes one byte while inside a single-quoted or
+// double-quoted string literal. The quote parameter is the delimiter character
+// ('\'' or '"'). It handles escaped-quote sequences and transitions back to
+// normal state when the closing delimiter is found.
+func handleQuoteState(reader *bufio.Reader, ss *sqlScanState, ch, quote byte, path string) error {
+	ss.current.WriteByte(ch)
+	if ch == '\n' {
+		ss.line++
+	}
+	if ch != quote {
+		return nil
+	}
+
+	next, ok, err := peekByte(reader)
+	if err != nil {
+		return fmt.Errorf("reading sql file %s: %w", path, err)
+	}
+	if ok && next == quote {
+		_, _ = reader.ReadByte()
+		ss.current.WriteByte(next)
+		return nil
+	}
+	ss.state = scanStateNormal
+	return nil
+}
+
+// scanDirectives reads the SQL file at path and returns all inline disable
+// directives found in it, without parsing any SQL statements.
 func scanDirectives(path string) ([]Directive, error) {
 	f, err := os.Open(path) //nolint:gosec // scanning user-provided source paths
 	if err != nil {
@@ -354,6 +386,10 @@ func scanDirectives(path string) ([]Directive, error) {
 	return directives, nil
 }
 
+// consumeDollarTag attempts to read a PostgreSQL dollar-quoted tag (e.g. "$$"
+// or "$tag$") from reader. On success it writes the tag bytes to current and
+// returns the full tag string with ok=true. If the bytes do not form a valid
+// dollar tag, consumed bytes are written to current and ok=false is returned.
 func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (tag string, ok bool, err error) {
 	buf := []byte{'$'}
 
@@ -387,6 +423,8 @@ func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (tag strin
 	}
 }
 
+// peekByte reads the next byte from reader without consuming it. It returns
+// ok=false at EOF and an error for any other read failure.
 func peekByte(reader *bufio.Reader) (b byte, ok bool, err error) {
 	ch, readErr := reader.ReadByte()
 	if errors.Is(readErr, io.EOF) {
@@ -401,6 +439,9 @@ func peekByte(reader *bufio.Reader) (b byte, ok bool, err error) {
 	return ch, true, nil
 }
 
+// isDollarTagChar reports whether ch is a valid character in a PostgreSQL
+// dollar-quote tag. The first character must be a letter or underscore;
+// subsequent characters may also be digits.
 func isDollarTagChar(ch byte, first bool) bool {
 	if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '_' {
 		return true
@@ -411,6 +452,8 @@ func isDollarTagChar(ch byte, first bool) bool {
 	return false
 }
 
+// isSpace reports whether ch is an ASCII whitespace character
+// (space, tab, carriage return, or newline).
 func isSpace(ch byte) bool {
 	switch ch {
 	case ' ', '\t', '\r', '\n':

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/valkdb/valk-guard/internal/rules"
 	"github.com/valkdb/valk-guard/internal/scanner"
+	"github.com/valkdb/valk-guard/internal/scannertest"
 )
 
 func TestGoquScannerExtractsRawAndSyntheticSQL(t *testing.T) {
@@ -38,11 +38,11 @@ func queries() {
 		t.Fatalf("expected at least 2 SQL statements, got %d: %+v", len(stmts), stmts)
 	}
 
-	if !hasSQL(stmts, "SELECT * FROM users") {
+	if !scannertest.HasSQL(stmts, "SELECT * FROM users") {
 		t.Fatalf("expected raw goqu.L SQL to be extracted")
 	}
 
-	if !hasSQLContaining(stmts, "/* valk-guard:synthetic goqu-ast */ SELECT * FROM users JOIN orders ON 1=1") {
+	if !scannertest.HasSQLContaining(stmts, "/* valk-guard:synthetic goqu-ast */ SELECT * FROM users JOIN orders ON 1=1") {
 		t.Fatalf("expected synthetic SQL with JOIN and SELECT * from builder chain, got %+v", stmts)
 	}
 }
@@ -74,7 +74,7 @@ func queries() {
 		t.Fatalf("scan error: %v", err)
 	}
 
-	findingsByRule := collectFindingsByRule(t, stmts)
+	findingsByRule := scannertest.CollectFindingsByRule(t, stmts)
 
 	requiredRules := []string{"VG001", "VG002", "VG003", "VG004", "VG005", "VG006"}
 	for _, ruleID := range requiredRules {
@@ -83,13 +83,13 @@ func queries() {
 		}
 	}
 
-	if !hasSQLContaining(stmts, "LEFT JOIN orders ON 1=1") {
+	if !scannertest.HasSQLContaining(stmts, "LEFT JOIN orders ON 1=1") {
 		t.Fatalf("expected synthetic SQL to preserve join structure, got %+v", stmts)
 	}
-	if !hasSQLContaining(stmts, "email LIKE '%@gmail.com'") {
+	if !scannertest.HasSQLContaining(stmts, "email LIKE '%@gmail.com'") {
 		t.Fatalf("expected synthetic SQL to preserve LIKE predicate, got %+v", stmts)
 	}
-	if !hasSQLContaining(stmts, "FOR UPDATE") {
+	if !scannertest.HasSQLContaining(stmts, "FOR UPDATE") {
 		t.Fatalf("expected synthetic SQL to preserve FOR UPDATE, got %+v", stmts)
 	}
 }
@@ -165,47 +165,4 @@ func TestGoquScannerEmptyDir(t *testing.T) {
 	if len(stmts) != 0 {
 		t.Fatalf("expected 0 statements, got %d", len(stmts))
 	}
-}
-
-func hasSQL(stmts []scanner.SQLStatement, want string) bool {
-	for _, stmt := range stmts {
-		if stmt.SQL == want {
-			return true
-		}
-	}
-	return false
-}
-
-func hasSQLContaining(stmts []scanner.SQLStatement, want string) bool {
-	for _, stmt := range stmts {
-		if strings.Contains(stmt.SQL, want) {
-			return true
-		}
-	}
-	return false
-}
-
-func collectFindingsByRule(t *testing.T, stmts []scanner.SQLStatement) map[string]int {
-	t.Helper()
-
-	findingsByRule := make(map[string]int)
-	reg := rules.DefaultRegistry()
-
-	for _, stmt := range stmts {
-		parsed, err := scanner.ParseStatement(stmt.SQL)
-		if err != nil {
-			t.Fatalf("failed to parse SQL %q: %v", stmt.SQL, err)
-		}
-		if parsed == nil {
-			continue
-		}
-		for _, rule := range reg.All() {
-			finds := rule.Check(parsed, stmt.File, stmt.Line, stmt.SQL)
-			if len(finds) > 0 {
-				findingsByRule[rule.ID()] += len(finds)
-			}
-		}
-	}
-
-	return findingsByRule
 }

@@ -6,9 +6,9 @@ format: terminal
 
 # File patterns to exclude from scanning
 exclude:
-  - "vendor/*"
+  - "vendor/**"
   - "*.gen.sql"
-  - "testdata/*"
+  - "testdata/**"
 
 # Per-rule overrides
 # rules:
