@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/valkdb/postgresparser"
+	"github.com/valkdb/valk-guard/internal/scanner"
+	"github.com/valkdb/valk-guard/internal/schema"
 )
 
 // mockRule implements Rule for testing.
@@ -19,6 +21,19 @@ func (r *mockRule) Name() string              { return r.name }
 func (r *mockRule) Description() string       { return r.desc }
 func (r *mockRule) DefaultSeverity() Severity { return r.severity }
 func (r *mockRule) Check(_ *postgresparser.ParsedQuery, _ string, _ int, _ string) []Finding {
+	return nil
+}
+
+// mockQuerySchemaRule implements QuerySchemaRule for testing.
+type mockQuerySchemaRule struct {
+	id string
+}
+
+func (r *mockQuerySchemaRule) ID() string                { return r.id }
+func (r *mockQuerySchemaRule) Name() string              { return "mock-query-schema" }
+func (r *mockQuerySchemaRule) Description() string       { return "mock query schema rule" }
+func (r *mockQuerySchemaRule) DefaultSeverity() Severity { return SeverityWarning }
+func (r *mockQuerySchemaRule) CheckQuerySchema(_ *schema.Snapshot, _ scanner.SQLStatement, _ *postgresparser.ParsedQuery) []Finding {
 	return nil
 }
 
@@ -100,6 +115,53 @@ func TestDefaultRegistryHasBuiltins(t *testing.T) {
 	for i, want := range wantOrder {
 		if all[i].ID() != want {
 			t.Errorf("rule %d: expected %s, got %s", i, want, all[i].ID())
+		}
+	}
+}
+
+func TestRegisterQuerySchemaDuplicate(t *testing.T) {
+	reg := NewRegistry()
+	rule := &mockQuerySchemaRule{id: "VG105"}
+
+	if err := reg.RegisterQuerySchema(rule); err != nil {
+		t.Fatalf("first RegisterQuerySchema failed: %v", err)
+	}
+	if err := reg.RegisterQuerySchema(rule); err == nil {
+		t.Fatal("expected duplicate RegisterQuerySchema to fail")
+	}
+}
+
+func TestAllQuerySchemaOrder(t *testing.T) {
+	reg := NewRegistry()
+	ruleA := &mockQuerySchemaRule{id: "VG105"}
+	ruleB := &mockQuerySchemaRule{id: "VG106"}
+	if err := reg.RegisterQuerySchema(ruleA); err != nil {
+		t.Fatalf("register ruleA failed: %v", err)
+	}
+	if err := reg.RegisterQuerySchema(ruleB); err != nil {
+		t.Fatalf("register ruleB failed: %v", err)
+	}
+
+	all := reg.AllQuerySchema()
+	if len(all) != 2 {
+		t.Fatalf("expected 2 query-schema rules, got %d", len(all))
+	}
+	if all[0].ID() != "VG105" || all[1].ID() != "VG106" {
+		t.Fatalf("unexpected query-schema order: [%s %s]", all[0].ID(), all[1].ID())
+	}
+}
+
+func TestDefaultRegistryHasBuiltinQuerySchemaRules(t *testing.T) {
+	reg := DefaultRegistry()
+	all := reg.AllQuerySchema()
+	if len(all) != 2 {
+		t.Fatalf("expected 2 built-in query-schema rules, got %d", len(all))
+	}
+
+	want := []string{"VG105", "VG106"}
+	for i, id := range want {
+		if all[i].ID() != id {
+			t.Errorf("query-schema rule %d: expected %s, got %s", i, id, all[i].ID())
 		}
 	}
 }

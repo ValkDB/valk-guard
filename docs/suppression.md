@@ -54,9 +54,9 @@ Python:
 session.execute(text("SELECT * FROM users"))
 ```
 
-## 4) Schema-Drift Rule Config
+## 4) Schema-Aware Rule Config
 
-Schema-drift rules (VG101-VG104) use the same per-rule config as query rules:
+Schema-aware rules (`VG101`-`VG106`) use the same per-rule config:
 
 ```yaml
 rules:
@@ -69,14 +69,23 @@ rules:
   VG104:
     severity: error
     engines: [sqlalchemy] # explicit table mappings only
+  VG105:
+    severity: error
+    engines: [goqu, sqlalchemy]
+  VG106:
+    severity: error
+    engines: [goqu, sqlalchemy]
 ```
 
-Schema-drift rules only fire when both SQL migrations (with `CREATE TABLE` DDL) and ORM models (Go structs with `db` tags or Python classes with `__tablename__`) are present. Projects with only one or the other produce no schema-drift findings.
+Model schema-drift rules (`VG101`-`VG104`) only fire when both SQL migrations (with `CREATE TABLE` DDL) and ORM models (Go structs with `db` tags or Python classes with `__tablename__`) are present.
 
-Schema rules also honor per-rule `engines` filtering:
+Query-schema rules (`VG105`, `VG106`) fire when migration schema tables exist and parsed query statements are present.
+
+Schema-aware rules honor per-rule `engines` filtering:
 
 - `go` applies to models extracted from Go `db` tags.
 - `sqlalchemy` applies to models extracted from Python SQLAlchemy code.
+- `sql`, `go`, `goqu`, and `sqlalchemy` apply to query-schema statement sources.
 
 ## Current Limitation
 

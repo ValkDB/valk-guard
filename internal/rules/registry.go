@@ -10,13 +10,17 @@ type Registry struct {
 
 	schemaRules map[string]SchemaRule
 	schemaOrder []string
+
+	querySchemaRules map[string]QuerySchemaRule
+	querySchemaOrder []string
 }
 
 // NewRegistry creates a new empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		rules:       make(map[string]Rule),
-		schemaRules: make(map[string]SchemaRule),
+		rules:            make(map[string]Rule),
+		schemaRules:      make(map[string]SchemaRule),
+		querySchemaRules: make(map[string]QuerySchemaRule),
 	}
 }
 
@@ -67,6 +71,28 @@ func (r *Registry) AllSchema() []SchemaRule {
 	return result
 }
 
+// RegisterQuerySchema adds a query-schema rule to the registry. It returns an
+// error if a rule with the same ID is already registered.
+func (r *Registry) RegisterQuerySchema(rule QuerySchemaRule) error {
+	id := rule.ID()
+	if _, exists := r.querySchemaRules[id]; exists {
+		return fmt.Errorf("query schema rule %s is already registered", id)
+	}
+	r.querySchemaRules[id] = rule
+	r.querySchemaOrder = append(r.querySchemaOrder, id)
+	return nil
+}
+
+// AllQuerySchema returns all registered query-schema rules in registration
+// order.
+func (r *Registry) AllQuerySchema() []QuerySchemaRule {
+	result := make([]QuerySchemaRule, 0, len(r.querySchemaOrder))
+	for _, id := range r.querySchemaOrder {
+		result = append(result, r.querySchemaRules[id])
+	}
+	return result
+}
+
 // DefaultRegistry returns a new registry with all built-in rules registered.
 func DefaultRegistry() *Registry {
 	reg := NewRegistry()
@@ -84,6 +110,9 @@ func DefaultRegistry() *Registry {
 	mustRegisterSchema(reg, &TypeMismatchRule{})
 	mustRegisterSchema(reg, &TableNotFoundRule{})
 
+	mustRegisterQuerySchema(reg, &UnknownProjectionColumnRule{})
+	mustRegisterQuerySchema(reg, &UnknownFilterColumnRule{})
+
 	return reg
 }
 
@@ -98,6 +127,14 @@ func mustRegister(reg *Registry, rule Rule) {
 // mustRegisterSchema registers a schema rule and panics on duplicate IDs.
 func mustRegisterSchema(reg *Registry, rule SchemaRule) {
 	if err := reg.RegisterSchema(rule); err != nil {
+		panic(err)
+	}
+}
+
+// mustRegisterQuerySchema registers a query-schema rule and panics on duplicate
+// IDs.
+func mustRegisterQuerySchema(reg *Registry, rule QuerySchemaRule) {
+	if err := reg.RegisterQuerySchema(rule); err != nil {
 		panic(err)
 	}
 }

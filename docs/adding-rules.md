@@ -112,6 +112,30 @@ Schema rules cross-reference ORM model definitions (extracted from Go struct `db
 
 See `vg101_dropped_column.go` for a reference implementation.
 
+## Query-Schema Rules (VG10x)
+
+Query-schema rules compare parsed query column usage with the migration schema snapshot.
+They implement `QuerySchemaRule` in `internal/rules/query_schema_rule.go`:
+
+```go
+type QuerySchemaRule interface {
+    ID() string
+    Name() string
+    Description() string
+    DefaultSeverity() Severity
+    CheckQuerySchema(snap *schema.Snapshot, stmt scanner.SQLStatement, parsed *postgresparser.ParsedQuery) []Finding
+}
+```
+
+### Adding a Query-Schema Rule
+
+1. Create `internal/rules/vg10x_your_rule.go` implementing `QuerySchemaRule`.
+2. Register in `DefaultRegistry()` using `mustRegisterQuerySchema(reg, &YourRule{})`.
+3. Use parser metadata (`parsed.Tables`, `parsed.ColumnUsage`) plus schema snapshot tables to resolve unknown columns.
+4. Respect statement metadata in `scanner.SQLStatement`:
+   - `Engine` for per-rule engine scoping (`sql`, `go`, `goqu`, `sqlalchemy`)
+   - `Disabled` for inline suppression directives
+
 ## Design Tips
 
 - Keep checks deterministic and parser-driven, not regex-only where possible.
