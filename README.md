@@ -30,11 +30,11 @@ Valk Guard v1 supports all three target sources out of the box:
 
 ### Goqu Scanner
 - Extracts raw SQL from `goqu.L("...")`.
-- Generates synthetic SQL from builder chains (`From/Join/Where/Limit/Update/Delete`) so rules run without raw literals.
+- Generates synthetic SQL from builder chains (`From/Join/Where/Limit/ForUpdate/Update/Delete`) so rules run without raw literals.
 
 ### SQLAlchemy Scanner
 - Extracts raw SQL from `text("...")` and `.execute("...")`.
-- Generates synthetic SQL from ORM/query chains (`query/select/join/filter/filter_by/update/delete`).
+- Generates synthetic SQL from ORM/query chains (`query/select/join/filter/filter_by/with_for_update/update/delete`).
 
 ### Configuration and Suppression
 - Per-rule enable/disable and severity override in `.valk-guard.yaml`.

@@ -55,6 +55,7 @@ import goqu "github.com/doug-martin/goqu/v9"
 func queries() {
 	goqu.From("users").LeftJoin(goqu.T("orders"), goqu.On(goqu.Ex{"users.id": goqu.I("orders.uid")})).Select(goqu.Star())
 	goqu.From("users").Join(goqu.T("profiles"), goqu.On(goqu.Ex{"users.id": goqu.I("profiles.uid")})).Where(goqu.C("email").Like("%@gmail.com")).Select("users.id")
+	goqu.From("users").ForUpdate().Select("id")
 	goqu.From("logs").LeftJoin(goqu.T("users"), goqu.On(goqu.Ex{"logs.uid": goqu.I("users.id")})).Select("logs.id", "logs.msg")
 	goqu.Update("inventory").Set(goqu.Record{"stock": 0})
 	goqu.Delete("sessions")
@@ -75,7 +76,7 @@ func queries() {
 
 	findingsByRule := collectFindingsByRule(t, stmts)
 
-	requiredRules := []string{"VG001", "VG002", "VG003", "VG004", "VG005"}
+	requiredRules := []string{"VG001", "VG002", "VG003", "VG004", "VG005", "VG006"}
 	for _, ruleID := range requiredRules {
 		if findingsByRule[ruleID] == 0 {
 			t.Fatalf("expected %s finding from builder chains, got none (all findings: %+v)", ruleID, findingsByRule)
@@ -87,6 +88,9 @@ func queries() {
 	}
 	if !hasSQLContaining(stmts, "email LIKE '%@gmail.com'") {
 		t.Fatalf("expected synthetic SQL to preserve LIKE predicate, got %+v", stmts)
+	}
+	if !hasSQLContaining(stmts, "FOR UPDATE") {
+		t.Fatalf("expected synthetic SQL to preserve FOR UPDATE, got %+v", stmts)
 	}
 }
 

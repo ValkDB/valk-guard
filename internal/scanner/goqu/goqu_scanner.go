@@ -237,6 +237,7 @@ func synthesizeSelect(chain []methodCall, alias string) string {
 	hasSelect := false
 	hasWhere := false
 	hasLimit := false
+	hasForUpdate := false
 	limitVal := "1"
 	var joins []string
 	var predicates []string
@@ -260,6 +261,8 @@ func synthesizeSelect(chain []methodCall, alias string) string {
 		case "Limit":
 			hasLimit = true
 			limitVal = limitFromArgs(link.Args)
+		case "ForUpdate":
+			hasForUpdate = true
 		}
 	}
 
@@ -276,6 +279,9 @@ func synthesizeSelect(chain []methodCall, alias string) string {
 	}
 	if hasLimit {
 		sql += " LIMIT " + limitVal
+	}
+	if hasForUpdate {
+		sql += " FOR UPDATE"
 	}
 	return sql
 }

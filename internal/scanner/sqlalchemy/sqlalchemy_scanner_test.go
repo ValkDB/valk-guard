@@ -51,6 +51,7 @@ func TestSQLAlchemyScannerBuilderChainsTriggerRules(t *testing.T) {
 def run(session, User, Address, Roles):
     session.query(User).join(Address).all()
     session.query(User).join(Address).filter(Address.street.like("%Main%")).all()
+    session.query(User).with_for_update().all()
     session.query(User).join(Roles).delete()
     session.query(User).join(Roles).update({"active": False})
     select(User).join(Address)
@@ -66,7 +67,7 @@ def run(session, User, Address, Roles):
 	}
 
 	findingsByRule := collectFindingsByRule(t, stmts)
-	requiredRules := []string{"VG001", "VG002", "VG003", "VG004", "VG005"}
+	requiredRules := []string{"VG001", "VG002", "VG003", "VG004", "VG005", "VG006"}
 	for _, ruleID := range requiredRules {
 		if findingsByRule[ruleID] == 0 {
 			t.Fatalf("expected %s finding from SQLAlchemy builder chains, got none (all findings: %+v)", ruleID, findingsByRule)
@@ -78,6 +79,9 @@ def run(session, User, Address, Roles):
 	}
 	if !hasSQLContaining(stmts, `"Address"."street" LIKE '%Main%'`) {
 		t.Fatalf("expected LIKE predicate to be preserved in synthetic SQL, got %+v", stmts)
+	}
+	if !hasSQLContaining(stmts, "FOR UPDATE") {
+		t.Fatalf("expected FOR UPDATE to be preserved in synthetic SQL, got %+v", stmts)
 	}
 }
 

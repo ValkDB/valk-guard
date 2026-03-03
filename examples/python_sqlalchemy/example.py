@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, select, text, update
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
 from models import User
 
@@ -6,19 +6,31 @@ engine = create_engine("postgresql://user:pass@localhost/db")
 Session = sessionmaker(bind=engine)
 session = Session()
 
-# VG001: ORM Select Star (session.query defaults to selecting all columns)
+# VG001: select-star (ORM chain)
 users = session.query(User).all()
 
-# VG001: Raw SQL Select Star
-session.execute(text("SELECT * FROM users"))
+# VG002: missing-where-update (ORM chain)
+session.query(User).update({"active": False})
 
-# VG005: Invalid LIKE pattern in filter
-session.query(User).filter(User.email.like("%@example.com")).all()
-
-# VG003: Delete without filter
+# VG003: missing-where-delete (ORM chain)
 session.query(User).delete()
 
-# Valid Query (Core style with explicit columns and limit)
+# VG004: unbounded-select (ORM chain)
+session.query(User).filter(User.active == True).all()
+
+# VG005: like-leading-wildcard (ORM chain)
+session.query(User).filter(User.email.like("%@example.com")).all()
+
+# VG006: select-for-update-no-where (ORM chain; requires FOR UPDATE synthesis)
+session.query(User).with_for_update().all()
+
+# VG007: destructive-ddl (raw SQL in SQLAlchemy)
+session.execute(text("DROP TABLE archived_users"))
+
+# VG008: non-concurrent-index (raw SQL in SQLAlchemy)
+session.execute(text("CREATE INDEX idx_users_email ON users(email)"))
+
+# Valid query (Core style with explicit columns and limit)
 stmt = select(User.id, User.email).where(User.active == True).limit(10)
 session.execute(stmt)
 

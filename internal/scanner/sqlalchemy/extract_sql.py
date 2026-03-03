@@ -15,6 +15,7 @@ SYNTHETIC_PREFIX = "/* valk-guard:synthetic sqlalchemy-ast */ "
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 JOIN_METHODS = {"join", "outerjoin", "leftouterjoin"}
 FILTER_METHODS = {"filter", "filter_by", "where"}
+FOR_UPDATE_METHODS = {"with_for_update"}
 
 
 def extract_sql_from_file(filepath):
@@ -118,6 +119,7 @@ def _synthesize_query_chain(chain):
     predicates = []
     has_filter = False
     has_limit = False
+    has_for_update = False
     limit_val = "1"
 
     for link in chain[1:end]:
@@ -139,6 +141,10 @@ def _synthesize_query_chain(chain):
         if method == "limit":
             has_limit = True
             limit_val = _limit_from_args(link["args"])
+            continue
+
+        if method in FOR_UPDATE_METHODS:
+            has_for_update = True
 
     if op_name == "update":
         return _build_update_sql(base_table, join_tables, has_filter, predicates)
@@ -153,6 +159,7 @@ def _synthesize_query_chain(chain):
         predicates,
         has_limit,
         limit_val,
+        has_for_update,
     )
 
 
@@ -165,6 +172,7 @@ def _synthesize_select_chain(chain):
     predicates = []
     has_filter = False
     has_limit = False
+    has_for_update = False
     limit_val = "1"
 
     for link in chain[1:]:
@@ -185,6 +193,10 @@ def _synthesize_select_chain(chain):
         if method == "limit":
             has_limit = True
             limit_val = _limit_from_args(link["args"])
+            continue
+
+        if method in FOR_UPDATE_METHODS:
+            has_for_update = True
 
     return _build_select_sql(
         columns,
@@ -194,6 +206,7 @@ def _synthesize_select_chain(chain):
         predicates,
         has_limit,
         limit_val,
+        has_for_update,
     )
 
 
@@ -240,7 +253,7 @@ def _operation_from_chain(chain):
     return None, None
 
 
-def _build_select_sql(columns, table, joins, has_filter, predicates, has_limit, limit_val):
+def _build_select_sql(columns, table, joins, has_filter, predicates, has_limit, limit_val, has_for_update):
     sql = f"SELECT {', '.join(columns)} FROM {table}"
     if joins:
         sql += " " + " ".join(joins)
@@ -248,6 +261,8 @@ def _build_select_sql(columns, table, joins, has_filter, predicates, has_limit, 
         sql += " WHERE " + " AND ".join(predicates)
     if has_limit:
         sql += " LIMIT " + limit_val
+    if has_for_update:
+        sql += " FOR UPDATE"
     return sql
 
 
