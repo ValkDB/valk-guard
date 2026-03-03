@@ -106,6 +106,9 @@ Schema rules cross-reference ORM model definitions (extracted from Go struct `db
 2. Register in `DefaultRegistry()` using `mustRegisterSchema(reg, &YourRule{})`.
 3. Schema rules receive a `*schema.Snapshot` (accumulated DDL state) and `[]schema.ModelDef` (extracted models).
 4. Use `matchTable(snap, modelTable)` to resolve model table names against the snapshot (handles pluralization).
+5. Respect model metadata in `schema.ModelDef`:
+   - `Source` identifies model engine (`go` or `sqlalchemy`).
+   - `TableExplicit` identifies whether table mapping is explicit in source (for example `__tablename__`).
 
 See `vg101_dropped_column.go` for a reference implementation.
 

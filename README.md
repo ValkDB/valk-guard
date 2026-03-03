@@ -53,6 +53,7 @@ Valk Guard v1 supports all three target sources out of the box:
 - Parallel scanner execution across SQL, Go, Goqu, and SQLAlchemy inputs.
 - End-to-end context cancellation (for `Ctrl+C` and CI timeout behavior).
 - Strict parsing behavior: invalid SQL or unparseable candidate Go/Python source fails the run with exit code `2`.
+- Schema snapshot is built from SQL files under migration-like paths (`migrations/`, `migration/`, `migrate/`) when present, otherwise falls back to all scanned `.sql` files.
 
 ## Installation
 
@@ -172,7 +173,17 @@ SELECT * FROM orders;
 | VG101 | dropped-column             | Model references a column not found in migration schema.   | error            |
 | VG102 | missing-not-null           | NOT NULL column (no default) missing from model.           | warning          |
 | VG103 | type-mismatch              | Column type mismatch between model and migration DDL.      | warning          |
-| VG104 | table-not-found            | Model maps to a table with no CREATE TABLE in migrations.  | error            |
+| VG104 | table-not-found            | Explicit model table mapping has no CREATE TABLE in migrations. | error        |
+
+Schema drift details and examples: [`docs/schema-drift.md`](docs/schema-drift.md)
+
+### Schema-Drift Support Matrix
+| Rule  | Go `db` tags | Python SQLAlchemy | Notes |
+|-------|--------------|-------------------|-------|
+| VG101 | yes          | yes               | Uses extracted model columns vs schema snapshot columns. |
+| VG102 | yes          | yes               | Checks NOT NULL-without-default columns missing from model. |
+| VG103 | yes          | yes               | Uses extracted model types (`string`, `int64`, `time.Time`, `String(255)`, etc.) mapped to compatible SQL types. |
+| VG104 | no (by design) | yes             | Fires only for explicit table mappings (for example `__tablename__`) to avoid false positives from inferred Go struct names. |
 
 ## CI / GitHub Actions
 Repository workflow behavior:

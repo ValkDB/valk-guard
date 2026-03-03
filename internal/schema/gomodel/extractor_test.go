@@ -99,6 +99,30 @@ type Order struct {
 			},
 		},
 		{
+			name: "column types are captured",
+			src: `package models
+
+import "time"
+
+type Event struct {
+	ID        int64     ` + "`db:\"id\"`" + `
+	Name      string    ` + "`db:\"name\"`" + `
+	CreatedAt time.Time ` + "`db:\"created_at\"`" + `
+}
+`,
+			wantDefs: []schema.ModelDef{
+				{
+					Table: "event",
+					Columns: []schema.ModelColumn{
+						{Name: "id", Field: "ID", Type: "int64", Line: 6},
+						{Name: "name", Field: "Name", Type: "string", Line: 7},
+						{Name: "created_at", Field: "CreatedAt", Type: "time.Time", Line: 8},
+					},
+					Line: 5,
+				},
+			},
+		},
+		{
 			name: "tag with comma options",
 			src: `package models
 
@@ -200,6 +224,12 @@ type Item struct {
 				if g.Table != want.Table {
 					t.Errorf("model[%d].Table = %q, want %q", i, g.Table, want.Table)
 				}
+				if g.Source != schema.ModelSourceGo {
+					t.Errorf("model[%d].Source = %q, want %q", i, g.Source, schema.ModelSourceGo)
+				}
+				if g.TableExplicit {
+					t.Errorf("model[%d].TableExplicit = true, want false", i)
+				}
 				if g.Line != want.Line {
 					t.Errorf("model[%d].Line = %d, want %d", i, g.Line, want.Line)
 				}
@@ -213,6 +243,9 @@ type Item struct {
 					}
 					if gc.Field != wc.Field {
 						t.Errorf("model[%d].col[%d].Field = %q, want %q", i, j, gc.Field, wc.Field)
+					}
+					if wc.Type != "" && gc.Type != wc.Type {
+						t.Errorf("model[%d].col[%d].Type = %q, want %q", i, j, gc.Type, wc.Type)
 					}
 					if gc.Line != wc.Line {
 						t.Errorf("model[%d].col[%d].Line = %d, want %d", i, j, gc.Line, wc.Line)

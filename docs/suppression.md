@@ -65,12 +65,18 @@ rules:
   VG102:
     severity: warning
   VG103:
-    enabled: false  # opt-in until type mapping matures
+    severity: warning
   VG104:
     severity: error
+    engines: [sqlalchemy] # explicit table mappings only
 ```
 
 Schema-drift rules only fire when both SQL migrations (with `CREATE TABLE` DDL) and ORM models (Go structs with `db` tags or Python classes with `__tablename__`) are present. Projects with only one or the other produce no schema-drift findings.
+
+Schema rules also honor per-rule `engines` filtering:
+
+- `go` applies to models extracted from Go `db` tags.
+- `sqlalchemy` applies to models extracted from Python SQLAlchemy code.
 
 ## Current Limitation
 

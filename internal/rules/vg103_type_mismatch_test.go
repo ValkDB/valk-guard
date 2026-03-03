@@ -47,6 +47,25 @@ func TestTypeMismatchRule(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name: "python parameterized type is normalized",
+			snap: func() *schema.Snapshot {
+				s := schema.NewSnapshot()
+				s.ApplyCreateTable("users", []schema.ColumnDef{
+					{Name: "email", Type: "varchar(255)"},
+				}, "migrations/001.sql", 1)
+				return s
+			}(),
+			models: []schema.ModelDef{{
+				Table: "user",
+				Columns: []schema.ModelColumn{
+					{Name: "email", Field: "Email", Type: "String(255)"},
+				},
+				File: "models/user.py",
+				Line: 10,
+			}},
+			wantCount: 0,
+		},
+		{
 			name: "type mismatch detected",
 			snap: func() *schema.Snapshot {
 				s := schema.NewSnapshot()
@@ -67,6 +86,26 @@ func TestTypeMismatchRule(t *testing.T) {
 			}},
 			wantCount: 1,
 			wantMsg:   `column "email" type mismatch: model has "integer" but migration has "text"`,
+		},
+		{
+			name: "interval is not integer-compatible",
+			snap: func() *schema.Snapshot {
+				s := schema.NewSnapshot()
+				s.ApplyCreateTable("users", []schema.ColumnDef{
+					{Name: "duration", Type: "interval"},
+				}, "migrations/001.sql", 1)
+				return s
+			}(),
+			models: []schema.ModelDef{{
+				Table: "user",
+				Columns: []schema.ModelColumn{
+					{Name: "duration", Field: "Duration", Type: "int64"},
+				},
+				File: "models/user.go",
+				Line: 10,
+			}},
+			wantCount: 1,
+			wantMsg:   `column "duration" type mismatch: model has "int64" but migration has "interval"`,
 		},
 		{
 			name: "empty model type skipped",

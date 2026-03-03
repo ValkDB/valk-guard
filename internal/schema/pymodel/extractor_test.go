@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/valkdb/valk-guard/internal/schema"
 )
 
 func requirePython3(t *testing.T) {
@@ -53,6 +55,12 @@ class User(Base):
 	m := models[0]
 	if m.Table != "users" {
 		t.Errorf("expected table 'users', got %q", m.Table)
+	}
+	if !m.TableExplicit {
+		t.Error("expected table mapping to be explicit")
+	}
+	if m.Source != schema.ModelSourceSQLAlchemy {
+		t.Errorf("expected source %q, got %q", schema.ModelSourceSQLAlchemy, m.Source)
 	}
 	if len(m.Columns) != 2 {
 		t.Fatalf("expected 2 columns, got %d", len(m.Columns))
@@ -122,8 +130,14 @@ class Account:
 	if models[0].Table != "users" {
 		t.Errorf("expected first model 'users', got %q", models[0].Table)
 	}
+	if !models[0].TableExplicit {
+		t.Error("expected first model table mapping to be explicit")
+	}
 	if models[1].Table != "accounts" {
 		t.Errorf("expected second model 'accounts', got %q", models[1].Table)
+	}
+	if !models[1].TableExplicit {
+		t.Error("expected second model table mapping to be explicit")
 	}
 }
 
@@ -150,6 +164,9 @@ class Product:
 	}
 
 	col := models[0].Columns[0]
+	if !models[0].TableExplicit {
+		t.Error("expected explicit table mapping")
+	}
 	if col.Name != "prod_id" {
 		t.Errorf("expected column name 'prod_id', got %q", col.Name)
 	}

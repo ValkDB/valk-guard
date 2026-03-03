@@ -33,7 +33,8 @@ func TestTableNotFoundRule(t *testing.T) {
 				return s
 			}(),
 			models: []schema.ModelDef{{
-				Table: "users",
+				Table:         "users",
+				TableExplicit: true,
 				Columns: []schema.ModelColumn{
 					{Name: "id", Field: "ID"},
 				},
@@ -52,12 +53,33 @@ func TestTableNotFoundRule(t *testing.T) {
 				return s
 			}(),
 			models: []schema.ModelDef{{
-				Table: "user",
+				Table:         "user",
+				TableExplicit: true,
 				Columns: []schema.ModelColumn{
 					{Name: "id", Field: "ID"},
 				},
 				File: "models/user.go",
 				Line: 10,
+			}},
+			wantCount: 0,
+		},
+		{
+			name: "inferred table names are skipped",
+			snap: func() *schema.Snapshot {
+				s := schema.NewSnapshot()
+				s.ApplyCreateTable("users", []schema.ColumnDef{
+					{Name: "id", Type: "integer"},
+				}, "migrations/001.sql", 1)
+				return s
+			}(),
+			models: []schema.ModelDef{{
+				Table:         "configrow",
+				TableExplicit: false,
+				Columns: []schema.ModelColumn{
+					{Name: "id", Field: "ID"},
+				},
+				File: "models/config.go",
+				Line: 3,
 			}},
 			wantCount: 0,
 		},
@@ -71,7 +93,8 @@ func TestTableNotFoundRule(t *testing.T) {
 				return s
 			}(),
 			models: []schema.ModelDef{{
-				Table: "orders",
+				Table:         "orders",
+				TableExplicit: true,
 				Columns: []schema.ModelColumn{
 					{Name: "id", Field: "ID"},
 				},
@@ -85,7 +108,8 @@ func TestTableNotFoundRule(t *testing.T) {
 			name: "empty snapshot skipped",
 			snap: schema.NewSnapshot(),
 			models: []schema.ModelDef{{
-				Table: "users",
+				Table:         "users",
+				TableExplicit: true,
 				Columns: []schema.ModelColumn{
 					{Name: "id", Field: "ID"},
 				},
@@ -105,7 +129,8 @@ func TestTableNotFoundRule(t *testing.T) {
 			}(),
 			models: []schema.ModelDef{
 				{
-					Table: "user",
+					Table:         "user",
+					TableExplicit: true,
 					Columns: []schema.ModelColumn{
 						{Name: "id", Field: "ID"},
 					},
@@ -113,7 +138,8 @@ func TestTableNotFoundRule(t *testing.T) {
 					Line: 10,
 				},
 				{
-					Table: "orders",
+					Table:         "orders",
+					TableExplicit: true,
 					Columns: []schema.ModelColumn{
 						{Name: "id", Field: "ID"},
 					},
