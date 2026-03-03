@@ -10,7 +10,7 @@ func main() {
 	// VG001: select-star (implicit SELECT *)
 	ds := goqu.From("users")
 	sql, _, _ := ds.ToSQL()
-	fmt.Println(sql)
+	_, _ = fmt.Println(sql)
 
 	// VG002: missing-where-update
 	goqu.Update("users").Set(goqu.Record{"active": false})

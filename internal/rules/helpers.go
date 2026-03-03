@@ -78,16 +78,17 @@ func hasLeadingWildcardLike(clauses []string) bool {
 }
 
 // hasForUpdateClause reports whether SQL contains a FOR UPDATE lock clause.
-// Comments are stripped first to avoid false positives from text like
-// "-- check FOR UPDATE" or "/* FOR UPDATE */".
+// Comments and quoted segments are stripped first to avoid false positives from
+// text like "-- check FOR UPDATE" or string literals containing "FOR UPDATE".
 func hasForUpdateClause(sql string) bool {
-	return forUpdatePattern.MatchString(stripSQLForUpdateCheck(sql))
+	return forUpdatePattern.MatchString(stripSQL(sql, true))
 }
 
-// stripSQLForUpdateCheck removes comments and quoted segments that may contain
-// arbitrary text so regex checks do not match phrases like "FOR UPDATE" inside
-// string literals or quoted identifiers.
-func stripSQLForUpdateCheck(sql string) string {
+// stripSQL removes comments from SQL text so regex-based checks do not match
+// content inside comments. When stripQuoted is true, it also replaces string
+// literals, dollar-quoted strings, and double-quoted identifiers with spaces
+// to prevent false matches on quoted content.
+func stripSQL(sql string, stripQuoted bool) string {
 	var b strings.Builder
 	b.Grow(len(sql))
 
@@ -95,93 +96,33 @@ func stripSQLForUpdateCheck(sql string) string {
 	for i < len(sql) {
 		// Single-line comment: skip to end of line.
 		if sql[i] == '-' && i+1 < len(sql) && sql[i+1] == '-' {
-			for i < len(sql) && sql[i] != '\n' {
-				i++
-			}
+			i = skipLineComment(sql, i)
 			continue
 		}
 
 		// Block comment: handle nesting.
 		if sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*' {
-			depth := 1
-			i += 2
-			for i < len(sql) && depth > 0 {
-				switch {
-				case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
-					depth++
-					i += 2
-				case sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/':
-					depth--
-					i += 2
-				default:
-					if sql[i] == '\n' {
-						b.WriteByte('\n')
-					}
-					i++
-				}
-			}
+			i = skipBlockComment(sql, i, &b)
 			continue
 		}
 
 		// Dollar-quoted string: $$...$$ or $tag$...$tag$.
-		if sql[i] == '$' {
-			tag := scanDollarQuoteTag(sql, i)
-			if tag != "" {
-				i += len(tag)
-				for i < len(sql) {
-					if sql[i] == '\n' {
-						b.WriteByte('\n')
-					}
-					if sql[i] == '$' && strings.HasPrefix(sql[i:], tag) {
-						i += len(tag)
-						break
-					}
-					i++
-				}
-				b.WriteByte(' ')
+		if stripQuoted && sql[i] == '$' {
+			if newI, handled := skipDollarQuoted(sql, i, &b); handled {
+				i = newI
 				continue
 			}
 		}
 
 		// Single-quoted string literal.
 		if sql[i] == '\'' {
-			i++
-			for i < len(sql) {
-				if sql[i] == '\n' {
-					b.WriteByte('\n')
-				}
-				if sql[i] == '\'' {
-					i++
-					if i < len(sql) && sql[i] == '\'' {
-						i++
-						continue
-					}
-					break
-				}
-				i++
-			}
-			b.WriteByte(' ')
+			i = skipSingleQuoted(sql, i, &b, stripQuoted)
 			continue
 		}
 
 		// Double-quoted identifier.
-		if sql[i] == '"' {
-			i++
-			for i < len(sql) {
-				if sql[i] == '\n' {
-					b.WriteByte('\n')
-				}
-				if sql[i] == '"' {
-					i++
-					if i < len(sql) && sql[i] == '"' {
-						i++
-						continue
-					}
-					break
-				}
-				i++
-			}
-			b.WriteByte(' ')
+		if stripQuoted && sql[i] == '"' {
+			i = skipDoubleQuoted(sql, i, &b)
 			continue
 		}
 
@@ -192,65 +133,132 @@ func stripSQLForUpdateCheck(sql string) string {
 	return b.String()
 }
 
-// stripSQLComments removes single-line (--) and block (/* */) comments from
-// SQL text so that regex-based checks do not match content inside comments.
-// Nested block comments (valid in PostgreSQL) are handled correctly.
-func stripSQLComments(sql string) string {
-	var b strings.Builder
-	b.Grow(len(sql))
-	i := 0
-	for i < len(sql) {
-		// Single-line comment: skip to end of line.
-		if sql[i] == '-' && i+1 < len(sql) && sql[i+1] == '-' {
-			for i < len(sql) && sql[i] != '\n' {
-				i++
-			}
-			continue
-		}
-		// Block comment: handle nesting.
-		if sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*' {
-			depth := 1
-			i += 2
-			for i < len(sql) && depth > 0 {
-				switch {
-				case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
-					depth++
-					i += 2
-				case sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/':
-					depth--
-					i += 2
-				default:
-					if sql[i] == '\n' {
-						b.WriteByte('\n') // preserve line numbers
-					}
-					i++
-				}
-			}
-			continue
-		}
-		// Single-quoted string: pass through (don't strip inside strings).
-		if sql[i] == '\'' {
-			b.WriteByte(sql[i])
-			i++
-			for i < len(sql) {
-				b.WriteByte(sql[i])
-				if sql[i] == '\'' {
-					i++
-					if i < len(sql) && sql[i] == '\'' {
-						b.WriteByte(sql[i])
-						i++
-						continue
-					}
-					break
-				}
-				i++
-			}
-			continue
-		}
-		b.WriteByte(sql[i])
+// skipLineComment advances past a -- single-line comment, returning the new
+// position. The newline itself is not consumed so line numbers stay correct.
+func skipLineComment(sql string, i int) int {
+	for i < len(sql) && sql[i] != '\n' {
 		i++
 	}
-	return b.String()
+	return i
+}
+
+// skipBlockComment advances past a /* ... */ block comment (handling nesting),
+// preserving any embedded newlines in b. Returns the new position.
+func skipBlockComment(sql string, i int, b *strings.Builder) int {
+	depth := 1
+	i += 2
+	for i < len(sql) && depth > 0 {
+		switch {
+		case sql[i] == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			depth++
+			i += 2
+		case sql[i] == '*' && i+1 < len(sql) && sql[i+1] == '/':
+			depth--
+			i += 2
+		default:
+			if sql[i] == '\n' {
+				b.WriteByte('\n')
+			}
+			i++
+		}
+	}
+	return i
+}
+
+// skipDollarQuoted attempts to skip a dollar-quoted string starting at i.
+// If a valid dollar-quote tag is found, it writes a single space placeholder
+// into b (preserving embedded newlines) and returns (newI, true).
+// If sql[i] is not the start of a dollar-quote, it returns (i, false).
+func skipDollarQuoted(sql string, i int, b *strings.Builder) (int, bool) {
+	tag := scanDollarQuoteTag(sql, i)
+	if tag == "" {
+		return i, false
+	}
+	i += len(tag)
+	for i < len(sql) {
+		if sql[i] == '\n' {
+			b.WriteByte('\n')
+		}
+		if sql[i] == '$' && strings.HasPrefix(sql[i:], tag) {
+			i += len(tag)
+			break
+		}
+		i++
+	}
+	b.WriteByte(' ')
+	return i, true
+}
+
+// skipSingleQuoted advances past a single-quoted string literal starting at i.
+// When stripQuoted is true, a space placeholder is written into b and the
+// literal content is discarded; otherwise the literal is copied verbatim.
+// Returns the new position.
+func skipSingleQuoted(sql string, i int, b *strings.Builder, stripQuoted bool) int {
+	if stripQuoted {
+		i++
+		for i < len(sql) {
+			if sql[i] == '\n' {
+				b.WriteByte('\n')
+			}
+			if sql[i] == '\'' {
+				i++
+				if i < len(sql) && sql[i] == '\'' {
+					i++
+					continue
+				}
+				break
+			}
+			i++
+		}
+		b.WriteByte(' ')
+		return i
+	}
+
+	b.WriteByte(sql[i])
+	i++
+	for i < len(sql) {
+		b.WriteByte(sql[i])
+		if sql[i] == '\'' {
+			i++
+			if i < len(sql) && sql[i] == '\'' {
+				b.WriteByte(sql[i])
+				i++
+				continue
+			}
+			break
+		}
+		i++
+	}
+	return i
+}
+
+// skipDoubleQuoted advances past a double-quoted identifier starting at i,
+// writing a space placeholder into b and preserving embedded newlines.
+// Returns the new position.
+func skipDoubleQuoted(sql string, i int, b *strings.Builder) int {
+	i++
+	for i < len(sql) {
+		if sql[i] == '\n' {
+			b.WriteByte('\n')
+		}
+		if sql[i] == '"' {
+			i++
+			if i < len(sql) && sql[i] == '"' {
+				i++
+				continue
+			}
+			break
+		}
+		i++
+	}
+	b.WriteByte(' ')
+	return i
+}
+
+// stripSQLComments is a convenience wrapper that removes only comments,
+// preserving string literals and identifiers.
+func stripSQLComments(sql string) string {
+	return stripSQL(sql, false)
 }
 
 // scanDollarQuoteTag checks whether sql[pos] starts a valid dollar-quote tag.

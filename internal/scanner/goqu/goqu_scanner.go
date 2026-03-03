@@ -156,6 +156,8 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 	}
 }
 
+// extractGoquLiteral returns the raw SQL string from a goqu.L("...") call
+// expression. It returns "" if the call is not a goqu literal call.
 func extractGoquLiteral(call *ast.CallExpr, alias string) string {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
@@ -175,6 +177,10 @@ func extractGoquLiteral(call *ast.CallExpr, alias string) string {
 	return scanner.ExtractStringLiteral(lit)
 }
 
+// synthesizeFromChain generates a synthetic SQL statement from a goqu
+// method-chain call expression. It inspects the root method name to
+// determine the statement type (SELECT, UPDATE, DELETE) and delegates to
+// the appropriate synthesize helper. Returns "" if the chain is unrecognized.
 func synthesizeFromChain(call *ast.CallExpr, alias string) string {
 	chain, ok := flattenMethodChain(call, alias)
 	if !ok || len(chain) == 0 {
@@ -193,6 +199,9 @@ func synthesizeFromChain(call *ast.CallExpr, alias string) string {
 	}
 }
 
+// flattenMethodChain walks a nested method-chain call expression rooted at a
+// goqu identifier and returns the calls in order from outermost to innermost.
+// ok is false if the chain does not start from the expected alias identifier.
 func flattenMethodChain(call *ast.CallExpr, alias string) ([]methodCall, bool) {
 	var reversed []methodCall
 	current := call
@@ -227,6 +236,10 @@ func flattenMethodChain(call *ast.CallExpr, alias string) ([]methodCall, bool) {
 	return chain, true
 }
 
+// synthesizeSelect builds a synthetic SELECT statement from a flattened goqu
+// method chain starting with From(). It handles Select, Join, Where, Limit,
+// and ForUpdate clauses, substituting safe placeholder identifiers for values
+// that cannot be statically resolved.
 func synthesizeSelect(chain []methodCall, alias string) string {
 	if len(chain[0].Args) == 0 {
 		return ""
@@ -286,6 +299,10 @@ func synthesizeSelect(chain []methodCall, alias string) string {
 	return sql
 }
 
+// synthesizeUpdate builds a synthetic UPDATE statement from a flattened goqu
+// method chain starting with Update(). It handles Join and Where clauses,
+// emitting a placeholder SET clause since the actual values cannot be
+// statically determined.
 func synthesizeUpdate(chain []methodCall, alias string) string {
 	if len(chain[0].Args) == 0 {
 		return ""
@@ -323,6 +340,9 @@ func synthesizeUpdate(chain []methodCall, alias string) string {
 	return sql
 }
 
+// synthesizeDelete builds a synthetic DELETE FROM statement from a flattened
+// goqu method chain starting with Delete(). It handles Join and Where clauses,
+// collecting joined tables into a USING clause.
 func synthesizeDelete(chain []methodCall, alias string) string {
 	if len(chain[0].Args) == 0 {
 		return ""
@@ -360,6 +380,9 @@ func synthesizeDelete(chain []methodCall, alias string) string {
 	return sql
 }
 
+// joinClause returns a SQL JOIN fragment for the given goqu join method name
+// and its AST arguments. The ON condition is always rendered as "1=1" since
+// the actual join condition cannot be reliably reconstructed from the AST.
 func joinClause(method string, args []ast.Expr, alias string) string {
 	joinType := "JOIN"
 	switch method {
@@ -378,6 +401,9 @@ func joinClause(method string, args []ast.Expr, alias string) string {
 	return fmt.Sprintf("%s %s ON 1=1", joinType, table)
 }
 
+// extractSelectColumns converts a slice of AST expressions from a goqu
+// Select() call into SQL column name strings. Falls back to ["*"] if no
+// column names can be resolved.
 func extractSelectColumns(args []ast.Expr, alias string) []string {
 	columns := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -393,6 +419,9 @@ func extractSelectColumns(args []ast.Expr, alias string) []string {
 	return columns
 }
 
+// extractPredicates converts a slice of AST expressions from a goqu Where()
+// call into SQL predicate strings, skipping any arguments that cannot be
+// resolved to a predicate.
 func extractPredicates(args []ast.Expr, alias string) []string {
 	var predicates []string
 	for _, arg := range args {
@@ -404,6 +433,10 @@ func extractPredicates(args []ast.Expr, alias string) []string {
 	return predicates
 }
 
+// predicateFromExpr converts a single AST expression representing a goqu
+// predicate (such as goqu.C("col").Eq(val) or a goqu.Ex{} composite literal)
+// into a SQL condition string. Returns "" if the expression cannot be
+// recognized as a predicate.
 func predicateFromExpr(expr ast.Expr, alias string) string {
 	switch e := expr.(type) {
 	case *ast.CallExpr:
@@ -451,6 +484,10 @@ func predicateFromExpr(expr ast.Expr, alias string) string {
 	return ""
 }
 
+// tableNameFromExpr resolves an AST expression to a safe SQL table name
+// string. It handles string literals, identifiers, selector expressions, and
+// goqu.T()/goqu.I() calls. Returns fallback when the expression cannot be
+// resolved to a safe identifier.
 func tableNameFromExpr(expr ast.Expr, alias, fallback string) string {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
@@ -481,6 +518,10 @@ func tableNameFromExpr(expr ast.Expr, alias, fallback string) string {
 	return fallback
 }
 
+// columnNameFromExpr resolves an AST expression to a safe SQL column name
+// string. It handles string literals, identifiers, qualified selectors, and
+// goqu.C()/goqu.I()/goqu.Star() calls. Returns fallback when the expression
+// cannot be resolved to a safe identifier.
 func columnNameFromExpr(expr ast.Expr, alias, fallback string) string {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
@@ -519,6 +560,8 @@ func columnNameFromExpr(expr ast.Expr, alias, fallback string) string {
 	return fallback
 }
 
+// literalOrIdent extracts the raw string representation of a basic literal,
+// identifier, or selector expression. Returns "" for any other expression type.
 func literalOrIdent(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
@@ -537,6 +580,10 @@ func literalOrIdent(expr ast.Expr) string {
 	return ""
 }
 
+// sqlValue converts an AST expression to a SQL value literal suitable for
+// embedding in a synthetic query. String literals are single-quoted, numeric
+// literals are emitted as-is, boolean/nil identifiers are mapped to SQL
+// keywords, and all other expressions are replaced with 'synthetic_value'.
 func sqlValue(expr ast.Expr, alias string) string {
 	if expr == nil {
 		return "NULL"
@@ -573,6 +620,9 @@ func sqlValue(expr ast.Expr, alias string) string {
 	return "'synthetic_value'"
 }
 
+// limitFromArgs extracts the LIMIT value from the AST arguments of a goqu
+// Limit() call. Returns "1" if no argument is present or the value cannot be
+// statically determined.
 func limitFromArgs(args []ast.Expr) string {
 	if len(args) == 0 {
 		return "1"
@@ -592,6 +642,7 @@ func limitFromArgs(args []ast.Expr) string {
 	return "1"
 }
 
+// firstArg returns the first element of args, or nil if args is empty.
 func firstArg(args []ast.Expr) ast.Expr {
 	if len(args) == 0 {
 		return nil
@@ -599,6 +650,10 @@ func firstArg(args []ast.Expr) ast.Expr {
 	return args[0]
 }
 
+// safeIdent validates that raw is a safe SQL identifier (letters, digits,
+// underscores, or dots with a letter/underscore as the first character) and
+// returns it trimmed. Returns fallback if raw is empty or contains unsafe
+// characters. The special token "*" is always returned as-is.
 func safeIdent(raw, fallback string) string {
 	raw = strings.TrimSpace(raw)
 	raw = strings.Trim(raw, "\"`")
@@ -628,6 +683,9 @@ func safeIdent(raw, fallback string) string {
 	return raw
 }
 
+// buildParentMap traverses the AST rooted at root and builds a map from each
+// node to its direct parent node. This is used to determine whether a call
+// expression is a sub-expression within a larger method chain.
 func buildParentMap(root ast.Node) map[ast.Node]ast.Node {
 	parents := make(map[ast.Node]ast.Node)
 	var stack []ast.Node
@@ -648,6 +706,10 @@ func buildParentMap(root ast.Node) map[ast.Node]ast.Node {
 	return parents
 }
 
+// isChainedSubCall reports whether call is an intermediate node in a goqu
+// builder method chain rather than the terminal call. A call is considered
+// a sub-call when its parent selector's method name is a known goqu builder
+// method and that selector is the function of a grandparent call expression.
 func isChainedSubCall(call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {
 	parent, ok := parents[call]
 	if !ok {

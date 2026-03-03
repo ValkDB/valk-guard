@@ -34,11 +34,14 @@ const (
 
 var version = "dev"
 
+// codedError pairs an exit code with an underlying error so that the top-level
+// run function can propagate both to the OS and to the user.
 type codedError struct {
 	code int
 	err  error
 }
 
+// Error implements the error interface, returning the underlying error message.
 func (e *codedError) Error() string {
 	if e.err == nil {
 		return ""
@@ -46,10 +49,13 @@ func (e *codedError) Error() string {
 	return e.err.Error()
 }
 
+// main is the entry point for the valk-guard binary.
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// run builds and executes the root cobra command, returning the appropriate
+// OS exit code based on the outcome.
 func run(args []string, stdout, stderr io.Writer) int {
 	root := newRootCmd(stdout, stderr)
 	root.SetArgs(args)
@@ -67,6 +73,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return exitSuccess
 }
 
+// newRootCmd constructs the top-level cobra command and registers all
+// subcommands.
 func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "valk-guard",
@@ -81,6 +89,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	return cmd
 }
 
+// scanOptions holds the CLI flag values parsed for the scan subcommand.
 type scanOptions struct {
 	configPath string
 	format     string
@@ -89,6 +98,8 @@ type scanOptions struct {
 	noColor    bool
 }
 
+// newScanCmd constructs the "scan" subcommand with its flags and wires it to
+// runScan.
 func newScanCmd(stdout, stderr io.Writer) *cobra.Command {
 	var opts scanOptions
 
@@ -109,6 +120,9 @@ func newScanCmd(stdout, stderr io.Writer) *cobra.Command {
 	return cmd
 }
 
+// runScan loads configuration, resolves the output reporter, collects source
+// files from the given paths, runs all enabled rules, and writes the report.
+// It returns a codedError so the caller can propagate the correct exit code.
 func runScan(opts scanOptions, args []string, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		args = []string{"."}
@@ -168,45 +182,41 @@ func runScan(opts scanOptions, args []string, stdout, stderr io.Writer) error {
 	return nil
 }
 
+// namedScanner associates a human-readable scanner name with its implementation
+// and the set of input files it should process.
 type namedScanner struct {
 	name string
 	impl scanner.Scanner
 	in   []string
 }
 
+// scannerInputs groups the file paths collected during directory walking by
+// their language / file type.
 type scannerInputs struct {
 	sqlFiles []string
 	goFiles  []string
 	pyFiles  []string
 }
 
+// plannedRules organises enabled rules into two buckets: those that apply to
+// every SQL command type (any) and those indexed by a specific command type
+// (byCommand), enabling fast dispatch during analysis.
 type plannedRules struct {
 	any       []rules.Rule
 	byCommand map[postgresparser.QueryCommand][]rules.Rule
 }
 
+// collectAndAnalyze walks the given paths to discover source files, fans out
+// scanning across all registered scanners concurrently, parses each SQL
+// statement, applies enabled rules, and returns the deduplicated, sorted
+// findings.
 func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, logger *slog.Logger) ([]rules.Finding, error) {
 	inputs, err := collectScannerInputs(ctx, paths, cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	scanners := []namedScanner{
-		{name: "sql", impl: &scanner.RawSQLScanner{}, in: inputs.sqlFiles},
-		{name: "go", impl: &scanner.GoScanner{}, in: inputs.goFiles},
-		{name: "goqu", impl: &goqu.Scanner{}, in: inputs.goFiles},
-		{name: "sqlalchemy", impl: &sqlalchemy.Scanner{}, in: inputs.pyFiles},
-	}
-
-	active := make([]namedScanner, 0, len(scanners))
-	for _, sc := range scanners {
-		if len(sc.in) == 0 {
-			logger.Debug("scanner skipped", "scanner", sc.name, "files", 0)
-			continue
-		}
-		logger.Debug("scanner queued", "scanner", sc.name, "files", len(sc.in))
-		active = append(active, sc)
-	}
+	active := activeScanners(inputs, logger)
 	if len(active) == 0 {
 		logger.Debug("no candidate files found")
 		return nil, nil
@@ -233,38 +243,7 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		errMu.Unlock()
 	}
 
-	results := make(chan scanner.SQLStatement, 256)
-	var wg sync.WaitGroup
-
-	for _, sc := range active {
-		sc := sc
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			emitted := 0
-			for stmt, err := range sc.impl.Scan(scanCtx, sc.in) {
-				if err != nil {
-					setFirstErr(fmt.Errorf("scanner %s: %w", sc.name, err))
-					return
-				}
-
-				emitted++
-				select {
-				case results <- stmt:
-				case <-scanCtx.Done():
-					return
-				}
-			}
-
-			logger.Debug("scanner completed", "scanner", sc.name, "statements", emitted)
-		}()
-	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	results := fanOutScanners(scanCtx, active, logger, setFirstErr)
 
 	var findings []rules.Finding
 	statements := 0
@@ -324,6 +303,84 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		return nil, firstErr
 	}
 
+	sortFindings(findings)
+
+	logger.Debug("analysis complete", "statements", statements, "findings", len(findings))
+	return findings, nil
+}
+
+// activeScanners builds the full list of named scanners from the collected
+// inputs, filters out any scanner with no candidate files, and logs the
+// outcome for each scanner.
+func activeScanners(inputs scannerInputs, logger *slog.Logger) []namedScanner {
+	all := []namedScanner{
+		{name: "sql", impl: &scanner.RawSQLScanner{}, in: inputs.sqlFiles},
+		{name: "go", impl: &scanner.GoScanner{}, in: inputs.goFiles},
+		{name: "goqu", impl: &goqu.Scanner{}, in: inputs.goFiles},
+		{name: "sqlalchemy", impl: &sqlalchemy.Scanner{}, in: inputs.pyFiles},
+	}
+
+	active := make([]namedScanner, 0, len(all))
+	for _, sc := range all {
+		if len(sc.in) == 0 {
+			logger.Debug("scanner skipped", "scanner", sc.name, "files", 0)
+			continue
+		}
+		logger.Debug("scanner queued", "scanner", sc.name, "files", len(sc.in))
+		active = append(active, sc)
+	}
+	return active
+}
+
+// fanOutScanners launches each scanner in its own goroutine, writing
+// discovered statements into a returned channel. The channel is closed once
+// all goroutines finish. Any scanner error is reported via setFirstErr and
+// causes the scan context to be cancelled.
+func fanOutScanners(
+	scanCtx context.Context,
+	active []namedScanner,
+	logger *slog.Logger,
+	setFirstErr func(error),
+) <-chan scanner.SQLStatement {
+	results := make(chan scanner.SQLStatement, 256)
+	var wg sync.WaitGroup
+
+	for _, sc := range active {
+		sc := sc
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			emitted := 0
+			for stmt, err := range sc.impl.Scan(scanCtx, sc.in) {
+				if err != nil {
+					setFirstErr(fmt.Errorf("scanner %s: %w", sc.name, err))
+					return
+				}
+
+				emitted++
+				select {
+				case results <- stmt:
+				case <-scanCtx.Done():
+					return
+				}
+			}
+
+			logger.Debug("scanner completed", "scanner", sc.name, "statements", emitted)
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	return results
+}
+
+// sortFindings sorts findings deterministically by file, line, column,
+// rule ID, and message so that report output is stable across runs.
+func sortFindings(findings []rules.Finding) {
 	sort.Slice(findings, func(i, j int) bool {
 		if findings[i].File != findings[j].File {
 			return findings[i].File < findings[j].File
@@ -339,11 +396,11 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		}
 		return findings[i].Message < findings[j].Message
 	})
-
-	logger.Debug("analysis complete", "statements", statements, "findings", len(findings))
-	return findings, nil
 }
 
+// buildRulePlan iterates over the registry and partitions enabled rules by the
+// SQL command types they target, producing a plannedRules ready for fast
+// per-statement dispatch.
 func buildRulePlan(cfg *config.Config, reg *rules.Registry) plannedRules {
 	plan := plannedRules{
 		byCommand: make(map[postgresparser.QueryCommand][]rules.Rule),
@@ -366,6 +423,8 @@ func buildRulePlan(cfg *config.Config, reg *rules.Registry) plannedRules {
 	return plan
 }
 
+// ruleCommandTargets returns the SQL command types that a given rule targets.
+// Rules that apply to all command types return nil.
 func ruleCommandTargets(ruleID string) []postgresparser.QueryCommand {
 	switch ruleID {
 	case "VG001", "VG004", "VG006":
@@ -382,6 +441,9 @@ func ruleCommandTargets(ruleID string) []postgresparser.QueryCommand {
 	}
 }
 
+// collectScannerInputs recursively walks the provided paths, classifying each
+// file by extension into SQL, Go, or Python buckets while respecting config
+// exclusion patterns and context cancellation.
 func collectScannerInputs(ctx context.Context, paths []string, cfg *config.Config) (scannerInputs, error) {
 	var inputs scannerInputs
 	seenSQL := make(map[string]struct{})
@@ -436,19 +498,23 @@ func collectScannerInputs(ctx context.Context, paths []string, cfg *config.Confi
 	return inputs, nil
 }
 
+// buildReporter constructs the output.Reporter corresponding to the requested
+// format string (config.FormatTerminal, config.FormatJSON, or config.FormatSARIF).
 func buildReporter(format string, noColor bool) (output.Reporter, error) {
 	switch format {
-	case "terminal":
+	case config.FormatTerminal:
 		return &output.TerminalReporter{NoColor: noColor}, nil
-	case "json":
+	case config.FormatJSON:
 		return &output.JSONReporter{}, nil
-	case "sarif":
+	case config.FormatSARIF:
 		return &output.SARIFReporter{Version: version}, nil
 	default:
 		return nil, fmt.Errorf("invalid format %q: must be terminal, json, or sarif", format)
 	}
 }
 
+// buildLogger creates a structured slog.Logger that writes text-format log
+// records to w at the requested level ("debug", "info", "warn", or "error").
 func buildLogger(w io.Writer, level string) (*slog.Logger, error) {
 	if level == "" {
 		level = "warn"
