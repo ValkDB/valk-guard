@@ -27,7 +27,7 @@ func main() {
 		Select("id")
 
 	// VG006: select-for-update-no-where (ORM chain; requires scanner FOR UPDATE synthesis)
-	goqu.From("accounts").ForUpdate().Select("id")
+	goqu.From("accounts").ForUpdate(goqu.Wait).Select("id")
 
 	// VG007: destructive-ddl (raw literal from goqu.L)
 	goqu.L("DROP TABLE archived_users")

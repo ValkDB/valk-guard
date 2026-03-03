@@ -182,10 +182,12 @@ func execPythonScript(ctx context.Context, scriptPath string, files []string) ([
 			}
 		}
 		models[i] = schema.ModelDef{
-			Table:   r.Table,
-			Columns: cols,
-			File:    r.File,
-			Line:    r.Line,
+			Table:         r.Table,
+			TableExplicit: true,
+			Source:        schema.ModelSourceSQLAlchemy,
+			Columns:       cols,
+			File:          r.File,
+			Line:          r.Line,
 		}
 	}
 

@@ -209,6 +209,13 @@ type plannedRules struct {
 	byCommand map[postgresparser.QueryCommand][]rules.Rule
 }
 
+// parsedStatement pairs a scanned SQL statement with its parsed form so
+// schema-aware query rules can run in a later phase that also has schema state.
+type parsedStatement struct {
+	stmt   scanner.SQLStatement
+	parsed *postgresparser.ParsedQuery
+}
+
 // collectAndAnalyze walks the given paths to discover source files, fans out
 // scanning across all registered scanners concurrently, parses each SQL
 // statement, applies enabled rules, and returns the deduplicated, sorted
@@ -251,6 +258,8 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 
 	var findings []rules.Finding
 	var sqlStatements []scanner.SQLStatement
+	var migrationSQLStatements []scanner.SQLStatement
+	var parsedStatements []parsedStatement
 	statements := 0
 
 	for stmt := range results {
@@ -273,6 +282,9 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		// Collect SQL-engine statements for schema-drift analysis.
 		if stmt.Engine == scanner.EngineSQL {
 			sqlStatements = append(sqlStatements, stmt)
+			if isMigrationSQLFile(stmt.File) {
+				migrationSQLStatements = append(migrationSQLStatements, stmt)
+			}
 		}
 
 		statements++
@@ -284,6 +296,10 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		if parsed == nil {
 			continue
 		}
+		parsedStatements = append(parsedStatements, parsedStatement{
+			stmt:   stmt,
+			parsed: parsed,
+		})
 
 		applyRule := func(rule rules.Rule) {
 			if !cfg.IsRuleEnabledForEngine(rule.ID(), stmt.Engine) {
@@ -313,8 +329,16 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		return nil, firstErr
 	}
 
-	// Schema-drift phase: cross-reference ORM models against migration DDL.
-	schemaFindings := runSchemaDrift(ctx, sqlStatements, inputs, cfg, reg, logger)
+	// Schema-aware phase: build migration snapshot once, then run
+	// query-schema rules and model schema-drift rules.
+	// Prefer files under migration-like paths when present; otherwise fall
+	// back to all SQL files to preserve behavior for projects that keep
+	// migrations elsewhere.
+	schemaSQLStatements := sqlStatements
+	if len(migrationSQLStatements) > 0 {
+		schemaSQLStatements = migrationSQLStatements
+	}
+	schemaFindings := runSchemaDrift(ctx, schemaSQLStatements, parsedStatements, inputs, cfg, reg, logger)
 	findings = append(findings, schemaFindings...)
 
 	sortFindings(findings)
@@ -556,31 +580,30 @@ func buildLogger(w io.Writer, level string) (*slog.Logger, error) {
 	return slog.New(handler), nil
 }
 
-// runSchemaDrift cross-references ORM model definitions against migration DDL
-// to detect schema drift. It only runs when both SQL migrations and model
-// source files (Go or Python) are present, avoiding false positives for
-// projects that only have one or the other.
+// runSchemaDrift performs schema-aware analysis using a migration snapshot:
+// query-schema checks against parsed SQL statements plus model schema-drift
+// checks against extracted ORM models.
 func runSchemaDrift(
 	ctx context.Context,
 	sqlStmts []scanner.SQLStatement,
+	parsedStmts []parsedStatement,
 	inputs scannerInputs,
 	cfg *config.Config,
 	reg *rules.Registry,
 	logger *slog.Logger,
 ) []rules.Finding {
-	schemaRules := reg.AllSchema()
-	if len(schemaRules) == 0 {
+	schemaRules := enabledSchemaRules(reg, cfg)
+	querySchemaRules := enabledQuerySchemaRules(reg, cfg)
+	if len(schemaRules) == 0 && len(querySchemaRules) == 0 {
 		return nil
 	}
 
-	// Build schema snapshot from DDL statements.
-	snap := schema.BuildFromStatements(sqlStmts)
-	if len(snap.Tables) == 0 {
-		logger.Debug("schema-drift skipped: no tables found in SQL migrations")
-		return nil
-	}
+	// Build migration snapshot from DDL statements.
+	migrationSnap := schema.BuildFromStatements(sqlStmts)
 
-	// Extract models from Go and Python source files.
+	// Extract models from Go and Python source files. Models are needed for:
+	// 1) model schema-drift rules (VG101-VG104)
+	// 2) query-schema rules (VG105-VG106) for go/goqu/sqlalchemy engines.
 	var models []schema.ModelDef
 
 	if len(inputs.goFiles) > 0 {
@@ -601,20 +624,79 @@ func runSchemaDrift(
 		}
 	}
 
-	if len(models) == 0 {
-		logger.Debug("schema-drift skipped: no ORM models found")
-		return nil
+	goModelSnap := buildModelSnapshotBySource(models, schema.ModelSourceGo)
+	pyModelSnap := buildModelSnapshotBySource(models, schema.ModelSourceSQLAlchemy)
+
+	var findings []rules.Finding
+
+	// Run enabled query-schema rules against parsed query statements.
+	if len(querySchemaRules) > 0 {
+		logger.Debug(
+			"query-schema analysis",
+			"migration_tables", len(migrationSnap.Tables),
+			"go_model_tables", len(goModelSnap.Tables),
+			"python_model_tables", len(pyModelSnap.Tables),
+			"statements", len(parsedStmts),
+			"rules", len(querySchemaRules),
+		)
+
+		for _, ps := range parsedStmts {
+			if ps.parsed == nil {
+				continue
+			}
+			snaps := querySnapshotsForEngine(ps.stmt.Engine, migrationSnap, goModelSnap, pyModelSnap)
+			if len(snaps) == 0 {
+				continue
+			}
+
+			for _, rule := range querySchemaRules {
+				if !cfg.IsRuleEnabledForEngine(rule.ID(), ps.stmt.Engine) {
+					continue
+				}
+				if scanner.IsDisabled(rule.ID(), ps.stmt.Disabled) {
+					continue
+				}
+
+				seen := make(map[string]bool)
+				for _, snap := range snaps {
+					ruleFindings := rule.CheckQuerySchema(snap, ps.stmt, ps.parsed)
+					for i := range ruleFindings {
+						ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
+						key := queryFindingKey(ruleFindings[i])
+						if seen[key] {
+							continue
+						}
+						seen[key] = true
+						findings = append(findings, ruleFindings[i])
+					}
+				}
+			}
+		}
 	}
 
-	logger.Debug("schema-drift analysis", "tables", len(snap.Tables), "models", len(models))
+	if len(schemaRules) == 0 {
+		return findings
+	}
+
+	if len(migrationSnap.Tables) == 0 {
+		logger.Debug("schema-drift skipped: no tables found in schema SQL files")
+		return findings
+	}
+
+	if len(models) == 0 {
+		logger.Debug("schema-drift skipped: no ORM models found")
+		return findings
+	}
+
+	logger.Debug("schema-drift analysis", "tables", len(migrationSnap.Tables), "models", len(models))
 
 	// Run enabled schema rules.
-	var findings []rules.Finding
 	for _, rule := range schemaRules {
-		if !cfg.IsRuleEnabled(rule.ID()) {
+		ruleModels := modelsForRule(models, cfg, rule.ID())
+		if len(ruleModels) == 0 {
 			continue
 		}
-		ruleFindings := rule.CheckSchema(snap, models)
+		ruleFindings := rule.CheckSchema(migrationSnap, ruleModels)
 		for i := range ruleFindings {
 			ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
 		}
@@ -622,4 +704,150 @@ func runSchemaDrift(
 	}
 
 	return findings
+}
+
+// buildModelSnapshotBySource converts extracted models for one source engine
+// into a lightweight table/column snapshot used by query-schema rules.
+func buildModelSnapshotBySource(models []schema.ModelDef, source schema.ModelSource) *schema.Snapshot {
+	snap := schema.NewSnapshot()
+
+	for _, model := range models {
+		if model.Source != source {
+			continue
+		}
+		tableName := strings.TrimSpace(model.Table)
+		if tableName == "" {
+			continue
+		}
+
+		tableKey := strings.ToLower(tableName)
+		td, ok := snap.Tables[tableKey]
+		if !ok {
+			td = &schema.TableDef{
+				Name:    tableName,
+				Columns: make(map[string]schema.ColumnDef),
+				File:    model.File,
+				Line:    model.Line,
+			}
+			snap.Tables[tableKey] = td
+		}
+
+		for _, col := range model.Columns {
+			colName := strings.TrimSpace(col.Name)
+			if colName == "" {
+				continue
+			}
+			td.Columns[strings.ToLower(colName)] = schema.ColumnDef{
+				Name: colName,
+				Type: col.Type,
+			}
+		}
+	}
+
+	return snap
+}
+
+// querySnapshotsForEngine returns schema snapshots to check for a statement.
+// Migrations always participate when available; model snapshots are added for
+// engine-matched sources (go/goqu -> Go models, sqlalchemy -> SQLAlchemy models).
+func querySnapshotsForEngine(
+	engine scanner.Engine,
+	migrationSnap, goModelSnap, pyModelSnap *schema.Snapshot,
+) []*schema.Snapshot {
+	var snaps []*schema.Snapshot
+	if migrationSnap != nil && len(migrationSnap.Tables) > 0 {
+		snaps = append(snaps, migrationSnap)
+	}
+
+	switch engine {
+	case scanner.EngineGo, scanner.EngineGoqu:
+		if goModelSnap != nil && len(goModelSnap.Tables) > 0 {
+			snaps = append(snaps, goModelSnap)
+		}
+	case scanner.EngineSQLAlchemy:
+		if pyModelSnap != nil && len(pyModelSnap.Tables) > 0 {
+			snaps = append(snaps, pyModelSnap)
+		}
+	}
+
+	return snaps
+}
+
+// queryFindingKey builds a deterministic key for de-duplicating query-schema
+// findings emitted from multiple schema snapshots.
+func queryFindingKey(f rules.Finding) string {
+	return fmt.Sprintf("%s|%s|%d|%d|%s|%s", f.RuleID, f.File, f.Line, f.Column, f.Message, f.SQL)
+}
+
+// isMigrationSQLFile reports whether path looks like a migration SQL file.
+func isMigrationSQLFile(path string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	if !strings.HasSuffix(normalized, ".sql") {
+		return false
+	}
+	for _, part := range strings.Split(normalized, "/") {
+		if part == "migrations" || part == "migration" || part == "migrate" {
+			return true
+		}
+	}
+	return false
+}
+
+// enabledSchemaRules returns schema rules that are enabled and allowed for at
+// least one model source engine.
+func enabledSchemaRules(reg *rules.Registry, cfg *config.Config) []rules.SchemaRule {
+	all := reg.AllSchema()
+	result := make([]rules.SchemaRule, 0, len(all))
+	for _, rule := range all {
+		if !cfg.IsRuleEnabled(rule.ID()) {
+			continue
+		}
+		goAllowed := cfg.IsRuleEnabledForEngine(rule.ID(), scanner.EngineGo)
+		pyAllowed := cfg.IsRuleEnabledForEngine(rule.ID(), scanner.EngineSQLAlchemy)
+		if !goAllowed && !pyAllowed {
+			continue
+		}
+		result = append(result, rule)
+	}
+	return result
+}
+
+// enabledQuerySchemaRules returns query-schema rules that are enabled.
+func enabledQuerySchemaRules(reg *rules.Registry, cfg *config.Config) []rules.QuerySchemaRule {
+	all := reg.AllQuerySchema()
+	result := make([]rules.QuerySchemaRule, 0, len(all))
+	for _, rule := range all {
+		if !cfg.IsRuleEnabled(rule.ID()) {
+			continue
+		}
+		result = append(result, rule)
+	}
+	return result
+}
+
+// modelsForRule filters extracted models according to the rule's configured
+// engine constraints.
+func modelsForRule(models []schema.ModelDef, cfg *config.Config, ruleID string) []schema.ModelDef {
+	goAllowed := cfg.IsRuleEnabledForEngine(ruleID, scanner.EngineGo)
+	pyAllowed := cfg.IsRuleEnabledForEngine(ruleID, scanner.EngineSQLAlchemy)
+	if !goAllowed && !pyAllowed {
+		return nil
+	}
+
+	filtered := make([]schema.ModelDef, 0, len(models))
+	for _, model := range models {
+		switch model.Source {
+		case schema.ModelSourceGo:
+			if goAllowed {
+				filtered = append(filtered, model)
+			}
+		case schema.ModelSourceSQLAlchemy:
+			if pyAllowed {
+				filtered = append(filtered, model)
+			}
+		default:
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
 }

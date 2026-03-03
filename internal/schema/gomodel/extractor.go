@@ -65,6 +65,7 @@ func (e *Extractor) ExtractModels(ctx context.Context, paths []string) ([]schema
 				cols = append(cols, schema.ModelColumn{
 					Name:  dbVal,
 					Field: fieldName,
+					Type:  normalizeGoType(field.Type),
 					Line:  fset.Position(field.Pos()).Line,
 				})
 			}
@@ -74,10 +75,12 @@ func (e *Extractor) ExtractModels(ctx context.Context, paths []string) ([]schema
 			}
 
 			models = append(models, schema.ModelDef{
-				Table:   strings.ToLower(ts.Name.Name),
-				Columns: cols,
-				File:    path,
-				Line:    fset.Position(ts.Pos()).Line,
+				Table:         strings.ToLower(ts.Name.Name),
+				TableExplicit: false,
+				Source:        schema.ModelSourceGo,
+				Columns:       cols,
+				File:          path,
+				Line:          fset.Position(ts.Pos()).Line,
 			})
 			return true
 		})
@@ -87,4 +90,30 @@ func (e *Extractor) ExtractModels(ctx context.Context, paths []string) ([]schema
 		return nil, err
 	}
 	return models, nil
+}
+
+// normalizeGoType converts a Go field type AST expression to a normalized type
+// string for schema drift comparison (for example, "string", "int64",
+// "time.Time").
+func normalizeGoType(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.SelectorExpr:
+		left := normalizeGoType(t.X)
+		if left == "" {
+			return t.Sel.Name
+		}
+		return left + "." + t.Sel.Name
+	case *ast.StarExpr:
+		return normalizeGoType(t.X)
+	case *ast.ArrayType:
+		return normalizeGoType(t.Elt)
+	case *ast.IndexExpr:
+		return normalizeGoType(t.X)
+	case *ast.IndexListExpr:
+		return normalizeGoType(t.X)
+	default:
+		return ""
+	}
 }

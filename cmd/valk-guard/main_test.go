@@ -401,6 +401,156 @@ func TestRunScanSQLAlchemyQuerySchemaRules(t *testing.T) {
 	}
 }
 
+func TestRunScanGoquQuerySchemaRulesUseGoModelColumns(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "db", "migrations"), 0755); err != nil {
+		t.Fatalf("failed to create migrations dir: %v", err)
+	}
+	// Migration allows nickname, but Go model intentionally omits it.
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "db", "migrations", "001.sql"),
+		[]byte("CREATE TABLE users (id INTEGER, email TEXT, nickname TEXT);"),
+		0644,
+	); err != nil {
+		t.Fatalf("failed to write migration fixture: %v", err)
+	}
+
+	goSrc := strings.Join([]string{
+		"package example",
+		"",
+		`import goqu "github.com/doug-martin/goqu/v9"`,
+		"",
+		"type User struct {",
+		"    ID    int    `db:\"id\"`",
+		"    Email string `db:\"email\"`",
+		"}",
+		"",
+		"func run() {",
+		`    _ = goqu.L("SELECT users.nickname FROM users WHERE users.nickname = 'x'")`,
+		"}",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(tmpDir, "query.go"), []byte(goSrc), 0644); err != nil {
+		t.Fatalf("failed to write go fixture: %v", err)
+	}
+
+	cfg := strings.Join([]string{
+		"rules:",
+		"  VG001: { enabled: false }",
+		"  VG002: { enabled: false }",
+		"  VG003: { enabled: false }",
+		"  VG004: { enabled: false }",
+		"  VG005: { enabled: false }",
+		"  VG006: { enabled: false }",
+		"  VG007: { enabled: false }",
+		"  VG008: { enabled: false }",
+		"  VG101: { enabled: false }",
+		"  VG102: { enabled: false }",
+		"  VG103: { enabled: false }",
+		"  VG104: { enabled: false }",
+		"  VG105:",
+		"    enabled: true",
+		"    engines: [goqu]",
+		"  VG106:",
+		"    enabled: true",
+		"    engines: [goqu]",
+		"",
+	}, "\n")
+	cfgPath := filepath.Join(tmpDir, ".valk-guard.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatalf("failed to write config fixture: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"scan", tmpDir, "--config", cfgPath, "--format", "json"}, &stdout, &stderr)
+	if code != exitFindings {
+		t.Fatalf("expected exit code %d, got %d (stderr=%q, stdout=%q)", exitFindings, code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"VG105"`) {
+		t.Fatalf("expected VG105 finding in output, got %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"VG106"`) {
+		t.Fatalf("expected VG106 finding in output, got %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "nickname") {
+		t.Fatalf("expected model-missing nickname finding, got %s", stdout.String())
+	}
+}
+
+func TestRunScanSQLAlchemyQuerySchemaRulesUseSQLAlchemyModelColumns(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "db", "migrations"), 0755); err != nil {
+		t.Fatalf("failed to create migrations dir: %v", err)
+	}
+	// Migration allows nickname, but SQLAlchemy model intentionally omits it.
+	if err := os.WriteFile(
+		filepath.Join(tmpDir, "db", "migrations", "001.sql"),
+		[]byte("CREATE TABLE users (id INTEGER, email TEXT, nickname TEXT);"),
+		0644,
+	); err != nil {
+		t.Fatalf("failed to write migration fixture: %v", err)
+	}
+
+	pySrc := strings.Join([]string{
+		"from sqlalchemy import Column, Integer, String, text",
+		"",
+		"class User:",
+		"    __tablename__ = \"users\"",
+		"    id = Column(Integer, primary_key=True)",
+		"    email = Column(String(255))",
+		"",
+		"def run(session):",
+		"    session.execute(text(\"SELECT users.nickname FROM users WHERE users.nickname = 'x'\"))",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(tmpDir, "query.py"), []byte(pySrc), 0644); err != nil {
+		t.Fatalf("failed to write python fixture: %v", err)
+	}
+
+	cfg := strings.Join([]string{
+		"rules:",
+		"  VG001: { enabled: false }",
+		"  VG002: { enabled: false }",
+		"  VG003: { enabled: false }",
+		"  VG004: { enabled: false }",
+		"  VG005: { enabled: false }",
+		"  VG006: { enabled: false }",
+		"  VG007: { enabled: false }",
+		"  VG008: { enabled: false }",
+		"  VG101: { enabled: false }",
+		"  VG102: { enabled: false }",
+		"  VG103: { enabled: false }",
+		"  VG104: { enabled: false }",
+		"  VG105:",
+		"    enabled: true",
+		"    engines: [sqlalchemy]",
+		"  VG106:",
+		"    enabled: true",
+		"    engines: [sqlalchemy]",
+		"",
+	}, "\n")
+	cfgPath := filepath.Join(tmpDir, ".valk-guard.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatalf("failed to write config fixture: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"scan", tmpDir, "--config", cfgPath, "--format", "json"}, &stdout, &stderr)
+	if code != exitFindings {
+		t.Fatalf("expected exit code %d, got %d (stderr=%q, stdout=%q)", exitFindings, code, stderr.String(), stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"VG105"`) {
+		t.Fatalf("expected VG105 finding in output, got %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"VG106"`) {
+		t.Fatalf("expected VG106 finding in output, got %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "nickname") {
+		t.Fatalf("expected model-missing nickname finding, got %s", stdout.String())
+	}
+}
+
 func TestIsMigrationSQLFile(t *testing.T) {
 	tests := []struct {
 		path string

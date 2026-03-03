@@ -19,10 +19,11 @@ This document defines what must be true for Valk Guard to be considered fully op
    - raw SQL (`text`, `execute`)
    - synthetic SQL from ORM/query chains
 5. Rule engine runs VG001-VG008 over parsed SQL with deterministic output ordering.
-6. Schema-drift rules VG101-VG104 cross-reference ORM models against migration DDL (preferring SQL files under migration-like paths).
-7. Go model extraction works via `db` struct tags.
-8. Python model extraction works via `__tablename__` and `Column()` AST analysis.
-9. VG104 table-not-found is limited to explicit table mappings to keep false positives low.
+6. Query-schema rules VG105-VG106 validate `SELECT` projection and `WHERE`/`JOIN` predicate columns against migration DDL schema snapshots and engine-matched model snapshots when available.
+7. Model schema-drift rules VG101-VG104 cross-reference ORM models against migration DDL (preferring SQL files under migration-like paths).
+8. Go model extraction works via `db` struct tags.
+9. Python model extraction works via `__tablename__` and `Column()` AST analysis.
+10. VG104 table-not-found is limited to explicit table mappings to keep false positives low.
 
 ## 3) Reliability and Exit Semantics
 

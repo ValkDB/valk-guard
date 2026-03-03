@@ -114,7 +114,7 @@ See `vg101_dropped_column.go` for a reference implementation.
 
 ## Query-Schema Rules (VG10x)
 
-Query-schema rules compare parsed query column usage with the migration schema snapshot.
+Query-schema rules compare parsed query column usage with schema snapshots selected by runtime (migration DDL and, when available, engine-matched model snapshots).
 They implement `QuerySchemaRule` in `internal/rules/query_schema_rule.go`:
 
 ```go

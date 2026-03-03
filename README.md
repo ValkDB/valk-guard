@@ -13,6 +13,7 @@ CI performance linter for application SQL.
 - Parses each statement with [`postgresparser`](https://github.com/ValkDB/postgresparser) into structured query metadata.
 - Applies built-in rules `VG001` through `VG008` to detect performance and safety anti-patterns.
 - Cross-references ORM models against migration DDL with rules `VG101` through `VG104` to detect schema drift.
+- Validates projected/filter/join columns in queries against migration DDL with rules `VG105` and `VG106`.
 - Reports findings in terminal, JSON, or SARIF 2.1.0 format.
 - Uses CI-friendly exit codes: `0` (clean), `1` (findings), `2` (config/runtime/parser error).
 
@@ -54,6 +55,9 @@ Valk Guard v1 supports all three target sources out of the box:
 - End-to-end context cancellation (for `Ctrl+C` and CI timeout behavior).
 - Strict parsing behavior: invalid SQL or unparseable candidate Go/Python source fails the run with exit code `2`.
 - Schema snapshot is built from SQL files under migration-like paths (`migrations/`, `migration/`, `migrate/`) when present, otherwise falls back to all scanned `.sql` files.
+- Schema-aware checks:
+  - `VG101`-`VG104` run only when ORM models are present.
+  - `VG105`-`VG106` run against parsed SQL statements (`sql`, `go`, `goqu`, `sqlalchemy`) using migration schema, plus engine-matched models when available (`go/goqu` -> Go `db` tags, `sqlalchemy` -> SQLAlchemy models).
 
 ## Installation
 
@@ -167,7 +171,7 @@ SELECT * FROM orders;
 | VG007 | destructive-ddl            | Detects destructive DDL (`DROP`, `TRUNCATE`, etc.).        | error            |
 | VG008 | non-concurrent-index       | Detects `CREATE INDEX` without `CONCURRENTLY`.             | warning          |
 
-### Schema-Drift Rules
+### Model Schema-Drift Rules
 | Code  | Name                       | Description                                                | Default Severity |
 |-------|----------------------------|------------------------------------------------------------|------------------|
 | VG101 | dropped-column             | Model references a column not found in migration schema.   | error            |
@@ -175,7 +179,13 @@ SELECT * FROM orders;
 | VG103 | type-mismatch              | Column type mismatch between model and migration DDL.      | warning          |
 | VG104 | table-not-found            | Explicit model table mapping has no CREATE TABLE in migrations. | error        |
 
-Schema drift details and examples: [`docs/schema-drift.md`](docs/schema-drift.md)
+### Query-Schema Rules
+| Code  | Name                       | Description                                                | Default Severity |
+|-------|----------------------------|------------------------------------------------------------|------------------|
+| VG105 | unknown-projection-column  | SELECT projection references a column missing in schema sources (migrations and engine-matched models). | error |
+| VG106 | unknown-filter-column      | WHERE/JOIN predicate references a column missing in schema sources (migrations and engine-matched models). | error |
+
+Schema-aware details and examples: [`docs/schema-drift.md`](docs/schema-drift.md)
 
 ### Schema-Drift Support Matrix
 | Rule  | Go `db` tags | Python SQLAlchemy | Notes |
@@ -184,6 +194,12 @@ Schema drift details and examples: [`docs/schema-drift.md`](docs/schema-drift.md
 | VG102 | yes          | yes               | Checks NOT NULL-without-default columns missing from model. |
 | VG103 | yes          | yes               | Uses extracted model types (`string`, `int64`, `time.Time`, `String(255)`, etc.) mapped to compatible SQL types. |
 | VG104 | no (by design) | yes             | Fires only for explicit table mappings (for example `__tablename__`) to avoid false positives from inferred Go struct names. |
+
+### Query-Schema Support Matrix
+| Rule  | sql | go | goqu | sqlalchemy | Notes |
+|-------|-----|----|------|------------|-------|
+| VG105 | yes | yes | yes | yes | Checks `SELECT` projection columns against migrations; for `go/goqu` and `sqlalchemy`, also checks model-derived columns when present. |
+| VG106 | yes | yes | yes | yes | Checks `WHERE` and `JOIN` predicate columns (including `INNER JOIN ... ON ...`) against migrations; for `go/goqu` and `sqlalchemy`, also checks model-derived columns when present. |
 
 ## CI / GitHub Actions
 Repository workflow behavior:
@@ -232,12 +248,19 @@ graph TD
 
     G --> H[postgresparser]
     H --> I[Rule Engine VG001-VG008]
+    H -->|SELECT column usage| Q[Query-Schema Rules VG105-VG106]
 
     D -->|struct db tags| N[Go Model Extractor]
     F -->|__tablename__| O[Python Model Extractor]
-    N --> P[Schema-Drift Rules VG101-VG104]
+    N --> P[Model Schema-Drift Rules VG101-VG104]
     O --> P
-    H -->|DDL actions| P
+    H -->|DDL actions| S[Schema Snapshot]
+    N --> T[Model Snapshots]
+    O --> T
+    S --> P
+    S --> Q
+    T --> Q
+    Q --> J
     P --> J
     I --> J{Output Format}
     J -->|terminal| K[Human Readable]
