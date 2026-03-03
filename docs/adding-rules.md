@@ -84,6 +84,31 @@ If `golangci-lint` is available in your environment, run:
 golangci-lint run ./...
 ```
 
+## Schema Rules (VG1xx)
+
+Schema-drift rules implement the `SchemaRule` interface instead of `Rule`:
+
+```go
+type SchemaRule interface {
+    ID() string
+    Name() string
+    Description() string
+    DefaultSeverity() Severity
+    CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding
+}
+```
+
+Schema rules cross-reference ORM model definitions (extracted from Go struct `db` tags or Python `__tablename__`/`Column()`) against migration DDL (parsed via `postgresparser`). They run after the per-statement phase.
+
+### Adding a Schema Rule
+
+1. Create `internal/rules/vg1xx_your_rule.go` implementing `SchemaRule`.
+2. Register in `DefaultRegistry()` using `mustRegisterSchema(reg, &YourRule{})`.
+3. Schema rules receive a `*schema.Snapshot` (accumulated DDL state) and `[]schema.ModelDef` (extracted models).
+4. Use `matchTable(snap, modelTable)` to resolve model table names against the snapshot (handles pluralization).
+
+See `vg101_dropped_column.go` for a reference implementation.
+
 ## Design Tips
 
 - Keep checks deterministic and parser-driven, not regex-only where possible.

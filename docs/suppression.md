@@ -54,6 +54,24 @@ Python:
 session.execute(text("SELECT * FROM users"))
 ```
 
+## 4) Schema-Drift Rule Config
+
+Schema-drift rules (VG101-VG104) use the same per-rule config as query rules:
+
+```yaml
+rules:
+  VG101:
+    severity: error
+  VG102:
+    severity: warning
+  VG103:
+    enabled: false  # opt-in until type mapping matures
+  VG104:
+    severity: error
+```
+
+Schema-drift rules only fire when both SQL migrations (with `CREATE TABLE` DDL) and ORM models (Go structs with `db` tags or Python classes with `__tablename__`) are present. Projects with only one or the other produce no schema-drift findings.
+
 ## Current Limitation
 
 Path-scoped per-rule overrides (for example: downgrade `VG008` only for `db/migrations/**`) are not implemented yet.

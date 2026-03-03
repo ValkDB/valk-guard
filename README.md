@@ -12,6 +12,7 @@ CI performance linter for application SQL.
 - Scans SQL in raw `.sql` files, Go source (`go/ast` extraction), Goqu chains, and Python SQLAlchemy code.
 - Parses each statement with [`postgresparser`](https://github.com/ValkDB/postgresparser) into structured query metadata.
 - Applies built-in rules `VG001` through `VG008` to detect performance and safety anti-patterns.
+- Cross-references ORM models against migration DDL with rules `VG101` through `VG104` to detect schema drift.
 - Reports findings in terminal, JSON, or SARIF 2.1.0 format.
 - Uses CI-friendly exit codes: `0` (clean), `1` (findings), `2` (config/runtime/parser error).
 
@@ -165,6 +166,14 @@ SELECT * FROM orders;
 | VG007 | destructive-ddl            | Detects destructive DDL (`DROP`, `TRUNCATE`, etc.).        | error            |
 | VG008 | non-concurrent-index       | Detects `CREATE INDEX` without `CONCURRENTLY`.             | warning          |
 
+### Schema-Drift Rules
+| Code  | Name                       | Description                                                | Default Severity |
+|-------|----------------------------|------------------------------------------------------------|------------------|
+| VG101 | dropped-column             | Model references a column not found in migration schema.   | error            |
+| VG102 | missing-not-null           | NOT NULL column (no default) missing from model.           | warning          |
+| VG103 | type-mismatch              | Column type mismatch between model and migration DDL.      | warning          |
+| VG104 | table-not-found            | Model maps to a table with no CREATE TABLE in migrations.  | error            |
+
 ## CI / GitHub Actions
 Repository workflow behavior:
 
@@ -212,6 +221,13 @@ graph TD
 
     G --> H[postgresparser]
     H --> I[Rule Engine VG001-VG008]
+
+    D -->|struct db tags| N[Go Model Extractor]
+    F -->|__tablename__| O[Python Model Extractor]
+    N --> P[Schema-Drift Rules VG101-VG104]
+    O --> P
+    H -->|DDL actions| P
+    P --> J
     I --> J{Output Format}
     J -->|terminal| K[Human Readable]
     J -->|json| L[Machine Readable]
@@ -237,7 +253,9 @@ make run
 
 ## Roadmap (Planned)
 - Deeper builder semantics (aliases, nested subqueries, richer predicate trees).
-- Schema-aware checks and lock/index heuristics.
+- Lock/index heuristics and additional schema-aware checks.
+- SQLAlchemy 2.0 `mapped_column()` support for model extraction.
+- GORM `TableName()` method scanning for Go model extraction.
 - Expanded custom rule authoring workflows.
 - Stronger PR regression-gating modes (for example changed-files-only policies and severity gates).
 
