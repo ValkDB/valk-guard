@@ -79,7 +79,10 @@ rules:
 
 Model schema-drift rules (`VG101`-`VG104`) only fire when both SQL migrations (with `CREATE TABLE` DDL) and ORM models (Go structs with `db` tags or Python classes with `__tablename__`) are present.
 
-Query-schema rules (`VG105`, `VG106`) fire when migration schema tables exist and parsed query statements are present.
+Query-schema rules (`VG105`, `VG106`) fire when parsed query statements are present and at least one schema source is available:
+
+- migration schema snapshot (from SQL DDL)
+- model-derived schema for matching engines (`go/goqu` from Go `db` tags, `sqlalchemy` from SQLAlchemy models)
 
 Schema-aware rules honor per-rule `engines` filtering:
 

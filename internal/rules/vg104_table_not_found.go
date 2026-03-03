@@ -31,6 +31,9 @@ func (r *TableNotFoundRule) CheckSchema(snap *schema.Snapshot, models []schema.M
 	}
 	var findings []Finding
 	for _, model := range models {
+		if !model.TableExplicit {
+			continue
+		}
 		if matchTable(snap, model.Table) == nil {
 			findings = append(findings, newFinding(
 				r.ID(),
