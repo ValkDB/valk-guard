@@ -24,6 +24,9 @@ import (
 	"github.com/valkdb/valk-guard/internal/scanner"
 	"github.com/valkdb/valk-guard/internal/scanner/goqu"
 	"github.com/valkdb/valk-guard/internal/scanner/sqlalchemy"
+	"github.com/valkdb/valk-guard/internal/schema"
+	"github.com/valkdb/valk-guard/internal/schema/gomodel"
+	"github.com/valkdb/valk-guard/internal/schema/pymodel"
 )
 
 const (
@@ -222,7 +225,8 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		return nil, nil
 	}
 
-	rulePlan := buildRulePlan(cfg, rules.DefaultRegistry())
+	reg := rules.DefaultRegistry()
+	rulePlan := buildRulePlan(cfg, reg)
 
 	scanCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -246,6 +250,7 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 	results := fanOutScanners(scanCtx, active, logger, setFirstErr)
 
 	var findings []rules.Finding
+	var sqlStatements []scanner.SQLStatement
 	statements := 0
 
 	for stmt := range results {
@@ -263,6 +268,11 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		if cfg.ShouldExclude(stmt.File) {
 			logger.Debug("statement excluded by config", "file", stmt.File)
 			continue
+		}
+
+		// Collect SQL-engine statements for schema-drift analysis.
+		if stmt.Engine == scanner.EngineSQL {
+			sqlStatements = append(sqlStatements, stmt)
 		}
 
 		statements++
@@ -302,6 +312,10 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 	if firstErr != nil {
 		return nil, firstErr
 	}
+
+	// Schema-drift phase: cross-reference ORM models against migration DDL.
+	schemaFindings := runSchemaDrift(ctx, sqlStatements, inputs, cfg, reg, logger)
+	findings = append(findings, schemaFindings...)
 
 	sortFindings(findings)
 
@@ -540,4 +554,72 @@ func buildLogger(w io.Writer, level string) (*slog.Logger, error) {
 
 	handler := slog.NewTextHandler(w, &slog.HandlerOptions{Level: slogLevel})
 	return slog.New(handler), nil
+}
+
+// runSchemaDrift cross-references ORM model definitions against migration DDL
+// to detect schema drift. It only runs when both SQL migrations and model
+// source files (Go or Python) are present, avoiding false positives for
+// projects that only have one or the other.
+func runSchemaDrift(
+	ctx context.Context,
+	sqlStmts []scanner.SQLStatement,
+	inputs scannerInputs,
+	cfg *config.Config,
+	reg *rules.Registry,
+	logger *slog.Logger,
+) []rules.Finding {
+	schemaRules := reg.AllSchema()
+	if len(schemaRules) == 0 {
+		return nil
+	}
+
+	// Build schema snapshot from DDL statements.
+	snap := schema.BuildFromStatements(sqlStmts)
+	if len(snap.Tables) == 0 {
+		logger.Debug("schema-drift skipped: no tables found in SQL migrations")
+		return nil
+	}
+
+	// Extract models from Go and Python source files.
+	var models []schema.ModelDef
+
+	if len(inputs.goFiles) > 0 {
+		goModels, err := (&gomodel.Extractor{}).ExtractModels(ctx, inputs.goFiles)
+		if err != nil {
+			logger.Warn("go model extraction failed", "error", err)
+		} else {
+			models = append(models, goModels...)
+		}
+	}
+
+	if len(inputs.pyFiles) > 0 {
+		pyModels, err := (&pymodel.Extractor{}).ExtractModels(ctx, inputs.pyFiles)
+		if err != nil {
+			logger.Warn("python model extraction failed", "error", err)
+		} else {
+			models = append(models, pyModels...)
+		}
+	}
+
+	if len(models) == 0 {
+		logger.Debug("schema-drift skipped: no ORM models found")
+		return nil
+	}
+
+	logger.Debug("schema-drift analysis", "tables", len(snap.Tables), "models", len(models))
+
+	// Run enabled schema rules.
+	var findings []rules.Finding
+	for _, rule := range schemaRules {
+		if !cfg.IsRuleEnabled(rule.ID()) {
+			continue
+		}
+		ruleFindings := rule.CheckSchema(snap, models)
+		for i := range ruleFindings {
+			ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
+		}
+		findings = append(findings, ruleFindings...)
+	}
+
+	return findings
 }

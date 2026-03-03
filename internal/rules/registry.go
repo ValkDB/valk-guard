@@ -7,12 +7,16 @@ import "fmt"
 type Registry struct {
 	rules map[string]Rule
 	order []string
+
+	schemaRules map[string]SchemaRule
+	schemaOrder []string
 }
 
 // NewRegistry creates a new empty Registry.
 func NewRegistry() *Registry {
 	return &Registry{
-		rules: make(map[string]Rule),
+		rules:       make(map[string]Rule),
+		schemaRules: make(map[string]SchemaRule),
 	}
 }
 
@@ -42,6 +46,27 @@ func (r *Registry) All() []Rule {
 	return result
 }
 
+// RegisterSchema adds a schema rule to the registry. It returns an error if
+// a schema rule with the same ID is already registered.
+func (r *Registry) RegisterSchema(rule SchemaRule) error {
+	id := rule.ID()
+	if _, exists := r.schemaRules[id]; exists {
+		return fmt.Errorf("schema rule %s is already registered", id)
+	}
+	r.schemaRules[id] = rule
+	r.schemaOrder = append(r.schemaOrder, id)
+	return nil
+}
+
+// AllSchema returns all registered schema rules in registration order.
+func (r *Registry) AllSchema() []SchemaRule {
+	result := make([]SchemaRule, 0, len(r.schemaOrder))
+	for _, id := range r.schemaOrder {
+		result = append(result, r.schemaRules[id])
+	}
+	return result
+}
+
 // DefaultRegistry returns a new registry with all built-in rules registered.
 func DefaultRegistry() *Registry {
 	reg := NewRegistry()
@@ -53,6 +78,12 @@ func DefaultRegistry() *Registry {
 	mustRegister(reg, &SelectForUpdateNoWhereRule{})
 	mustRegister(reg, &DestructiveDDLRule{})
 	mustRegister(reg, &NonConcurrentIndexRule{})
+
+	mustRegisterSchema(reg, &DroppedColumnRule{})
+	mustRegisterSchema(reg, &MissingNotNullRule{})
+	mustRegisterSchema(reg, &TypeMismatchRule{})
+	mustRegisterSchema(reg, &TableNotFoundRule{})
+
 	return reg
 }
 
@@ -60,6 +91,13 @@ func DefaultRegistry() *Registry {
 // a programming error in built-in rule wiring.
 func mustRegister(reg *Registry, rule Rule) {
 	if err := reg.Register(rule); err != nil {
+		panic(err)
+	}
+}
+
+// mustRegisterSchema registers a schema rule and panics on duplicate IDs.
+func mustRegisterSchema(reg *Registry, rule SchemaRule) {
+	if err := reg.RegisterSchema(rule); err != nil {
 		panic(err)
 	}
 }
