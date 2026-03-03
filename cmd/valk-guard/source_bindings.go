@@ -1,0 +1,190 @@
+// Copyright 2025 ValkDB
+// SPDX-License-Identifier: Apache-2.0
+
+package main
+
+import (
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/valkdb/valk-guard/internal/config"
+	"github.com/valkdb/valk-guard/internal/scanner"
+	"github.com/valkdb/valk-guard/internal/scanner/goqu"
+	"github.com/valkdb/valk-guard/internal/scanner/sqlalchemy"
+	"github.com/valkdb/valk-guard/internal/schema"
+	"github.com/valkdb/valk-guard/internal/schema/gomodel"
+	"github.com/valkdb/valk-guard/internal/schema/pymodel"
+)
+
+// scannerBinding describes one scanner integration and the file extensions that
+// should be fed into it.
+type scannerBinding struct {
+	name       string
+	impl       scanner.Scanner
+	extensions []string
+}
+
+// modelBinding describes one model extractor integration and how it maps to
+// config/query engines.
+type modelBinding struct {
+	source        schema.ModelSource
+	extractor     schema.ModelExtractor
+	extensions    []string
+	configEngines []scanner.Engine
+	queryEngines  []scanner.Engine
+}
+
+// scannerInputs stores collected candidate files by lowercase extension.
+type scannerInputs struct {
+	byExt map[string][]string
+}
+
+func newScannerInputs() scannerInputs {
+	return scannerInputs{byExt: make(map[string][]string)}
+}
+
+func normalizeExt(ext string) string {
+	ext = strings.ToLower(strings.TrimSpace(ext))
+	if ext == "" {
+		return ""
+	}
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	return ext
+}
+
+// filesForExtensions returns a sorted, deduplicated list of files collected for
+// the given extensions.
+func (in scannerInputs) filesForExtensions(exts []string) []string {
+	if len(exts) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+
+	for _, rawExt := range exts {
+		ext := normalizeExt(rawExt)
+		if ext == "" {
+			continue
+		}
+		for _, path := range in.byExt[ext] {
+			if _, exists := seen[path]; exists {
+				continue
+			}
+			seen[path] = struct{}{}
+			out = append(out, path)
+		}
+	}
+
+	slices.Sort(out)
+	return out
+}
+
+func defaultScannerBindings() []scannerBinding {
+	return []scannerBinding{
+		{name: "sql", impl: &scanner.RawSQLScanner{}, extensions: []string{".sql"}},
+		{name: "go", impl: &scanner.GoScanner{}, extensions: []string{".go"}},
+		{name: "goqu", impl: &goqu.Scanner{}, extensions: []string{".go"}},
+		{name: "sqlalchemy", impl: &sqlalchemy.Scanner{}, extensions: []string{".py"}},
+	}
+}
+
+func defaultModelBindings(cfg *config.Config) []modelBinding {
+	return []modelBinding{
+		{
+			source:        schema.ModelSourceGo,
+			extractor:     &gomodel.Extractor{Mode: gomodel.MappingMode(cfg.GoModel.MappingMode)},
+			extensions:    []string{".go"},
+			configEngines: []scanner.Engine{scanner.EngineGo},
+			queryEngines:  []scanner.Engine{scanner.EngineGo, scanner.EngineGoqu},
+		},
+		{
+			source:        schema.ModelSourceSQLAlchemy,
+			extractor:     &pymodel.Extractor{},
+			extensions:    []string{".py"},
+			configEngines: []scanner.Engine{scanner.EngineSQLAlchemy},
+			queryEngines:  []scanner.Engine{scanner.EngineSQLAlchemy},
+		},
+	}
+}
+
+func requiredExtensions(scannerBindings []scannerBinding, modelBindings []modelBinding) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	add := func(ext string) {
+		ext = normalizeExt(ext)
+		if ext == "" {
+			return
+		}
+		if _, exists := seen[ext]; exists {
+			return
+		}
+		seen[ext] = struct{}{}
+		out = append(out, ext)
+	}
+
+	for _, b := range scannerBindings {
+		for _, ext := range b.extensions {
+			add(ext)
+		}
+	}
+	for _, b := range modelBindings {
+		for _, ext := range b.extensions {
+			add(ext)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func sourceConfigEngines(bindings []modelBinding) map[schema.ModelSource][]scanner.Engine {
+	result := make(map[schema.ModelSource][]scanner.Engine)
+	seen := make(map[schema.ModelSource]map[scanner.Engine]struct{})
+
+	for _, b := range bindings {
+		if _, ok := seen[b.source]; !ok {
+			seen[b.source] = make(map[scanner.Engine]struct{})
+		}
+		for _, engine := range b.configEngines {
+			if _, exists := seen[b.source][engine]; exists {
+				continue
+			}
+			seen[b.source][engine] = struct{}{}
+			result[b.source] = append(result[b.source], engine)
+		}
+	}
+	return result
+}
+
+func sourceQueryEngines(bindings []modelBinding) map[scanner.Engine][]schema.ModelSource {
+	result := make(map[scanner.Engine][]schema.ModelSource)
+	seen := make(map[scanner.Engine]map[schema.ModelSource]struct{})
+
+	for _, b := range bindings {
+		for _, engine := range b.queryEngines {
+			if _, ok := seen[engine]; !ok {
+				seen[engine] = make(map[schema.ModelSource]struct{})
+			}
+			if _, exists := seen[engine][b.source]; exists {
+				continue
+			}
+			seen[engine][b.source] = struct{}{}
+			result[engine] = append(result[engine], b.source)
+		}
+	}
+	return result
+}
+
+// addInputFile appends path to the extension bucket when unseen.
+func addInputFile(inputs scannerInputs, seen map[string]map[string]struct{}, ext, path string) {
+	if _, ok := seen[ext]; !ok {
+		seen[ext] = make(map[string]struct{})
+	}
+	if _, exists := seen[ext][path]; exists {
+		return
+	}
+	seen[ext][path] = struct{}{}
+	inputs.byExt[ext] = append(inputs.byExt[ext], filepath.Clean(path))
+}

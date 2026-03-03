@@ -1,4 +1,0 @@
-query.sql:10: warning [VG001] avoid SELECT *
-update.sql:5: error [VG002] missing WHERE clause
-
-2 findings

@@ -1,0 +1,46 @@
+graph TD
+    subgraph "CLI"
+        CLI_CMD[valk-guard scan] --> CFG[Load Config]
+        CFG --> BIND[Load Source Bindings]
+    end
+
+    subgraph "Discovery and Extraction"
+        BIND --> DISCOVER[Discover Files by Bound Extensions]
+        DISCOVER --> SCANNERS[Run Bound Scanners]
+        DISCOVER --> EXTRACTORS[Run Bound Model Extractors]
+        SCANNERS --> STMTS[SQLStatement Stream]
+        STMTS --> META[Attach file line engine and disable directives]
+    end
+
+    subgraph "Core Rules"
+        META --> PARSER[postgresparser ParseSQL]
+        PARSER --> AST[Parsed Query Metadata]
+        AST --> PLAN[Build Rule Plan by CommandTargets]
+        CFG --> RULECFG[Rule config enabled severity engines]
+        PLAN --> CORE[VG001-VG008]
+        RULECFG --> CORE
+    end
+
+    subgraph "Schema-Aware Rules"
+        STMTS --> MIGSEL[Select migration-like SQL files]
+        MIGSEL --> MIGSNAP[Migration Schema Snapshot]
+        EXTRACTORS --> MODELDEFS[Generic Model Definitions]
+        MODELDEFS --> MODELSNAP[Model Snapshots by Source]
+        AST --> QUERYSCHEMA[VG105-VG108]
+        RULECFG --> QUERYSCHEMA
+        MIGSNAP --> QUERYSCHEMA
+        MODELSNAP --> QUERYSCHEMA
+        MODELDEFS --> SCHEMADRIFT[VG101-VG104 and VG109-VG111]
+        RULECFG --> SCHEMADRIFT
+        MIGSNAP --> SCHEMADRIFT
+    end
+
+    subgraph "Reporting"
+        CORE --> FINDINGS[Findings]
+        QUERYSCHEMA --> FINDINGS
+        SCHEMADRIFT --> FINDINGS
+        FINDINGS --> REPORT{Reporter}
+        REPORT --> TERM[Terminal]
+        REPORT --> JSON[JSON]
+        REPORT --> SARIF[SARIF 2 1 0]
+    end

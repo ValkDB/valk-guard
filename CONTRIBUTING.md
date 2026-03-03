@@ -5,8 +5,8 @@ Thanks for your interest in contributing!
 ## Getting Started
 
 1. Fork the repo and clone your fork
-2. Ensure Go 1.25.6+ is installed
-3. Clone [valk-postgres-parser](https://github.com/ValkDB/valk-postgres-parser) alongside this repo (the `go.mod` `replace` directive expects `../valk-postgres-parser`)
+2. Ensure Go 1.25.6 is installed
+3. Ensure `python3` is available (required for SQLAlchemy scanner tests)
 4. Run `make check` to verify everything builds and passes
 
 ## Development Workflow
@@ -28,9 +28,9 @@ make check        # all of the above
 
 ## Adding a New Rule
 
-1. Create `rules/vgXXX_rule_name.go` implementing the `Rule` interface
-2. Register it in `rules/registry.go` via `DefaultRegistry()`
-3. Add tests in `rules/vgXXX_rule_name_test.go`
+1. Create `internal/rules/vgXXX_rule_name.go` implementing the `Rule` interface
+2. Register it in `internal/rules/registry.go` via `DefaultRegistry()`
+3. Add tests in `internal/rules/vgXXX_rule_name_test.go`
 4. Add a test fixture in `testdata/` if helpful
 5. Document the rule in README.md
 
@@ -38,12 +38,15 @@ Detailed guide: see [`docs/adding-rules.md`](docs/adding-rules.md).
 
 ## Adding a New Scanner
 
-1. Implement the `scanner.Scanner` interface in `scanner/<name>_scanner.go`
-2. Reuse directive parsing/suppression mapping for consistent behavior
-3. Register it in `configuredScanners()` in `cmd/valk-guard/main.go`
-4. Add scanner tests and fixtures under `scanner/` and `testdata/`
+1. Create a subfolder under `internal/scanner/` (e.g. `internal/scanner/myorm/`) with `myorm_scanner.go`
+2. Implement the `scanner.Scanner` interface
+3. Use shared helpers from `internal/scanner/goast.go` (for Go-based scanners) and `scanner.DisabledRulesForLine` for directive support
+4. Register it in source bindings (`cmd/valk-guard/source_bindings.go`)
+5. Add scanner tests in `internal/scanner/myorm/myorm_scanner_test.go` and fixtures under `testdata/`
 
-Detailed guide: see [`docs/adding-scanners.md`](docs/adding-scanners.md).
+Existing scanners in subfolders: `internal/scanner/goqu/`, `internal/scanner/sqlalchemy/`.
+
+Detailed guide: see [`docs/adding-sources.md`](docs/adding-sources.md).
 
 ## Code Style
 
@@ -58,6 +61,12 @@ Open an issue on GitHub with:
 - What actually happened
 - Steps to reproduce
 - Go version and OS
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+By participating, you are expected to uphold this code. Please report unacceptable
+behavior to **conduct@valkdb.com**.
 
 ## License
 

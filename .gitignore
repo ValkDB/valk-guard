@@ -1,6 +1,6 @@
 # Binary
-valk-guard
-valk-guard.exe
+/valk-guard
+/valk-guard.exe
 
 # Distribution
 dist/
@@ -22,6 +22,18 @@ Thumbs.db
 # Go
 vendor/
 coverage.out
+*.test
+*.prof
+.gocache/
+.gomodcache/
+
+# Python
+__pycache__/
+*.pyc
 
 # Local scratch notes (intentionally not committed)
 tmp/
+temp/
+
+# Claude Code local settings (personal tool permissions and local dev paths)
+.claude/settings.local.json

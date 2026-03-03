@@ -5,15 +5,42 @@
 format: terminal
 
 # File patterns to exclude from scanning
+# Exclude patterns use glob syntax:
+#   *      matches any sequence of non-separator characters
+#   **     matches any sequence of characters including path separators
+#   ?      matches any single non-separator character
+# Patterns are matched against file paths relative to the scan root.
 exclude:
-  - "vendor/*"
+  - "vendor/**"
   - "*.gen.sql"
-  - "testdata/*"
+  - "testdata/**"
+
+# Go model extraction behavior
+go_model:
+  # strict | balanced | permissive
+  # strict: explicit mappings only (db/gorm column tags)
+  # balanced: infer from exported field names when tags are absent
+  # permissive: infer from all named fields when tags are absent
+  mapping_mode: strict
 
 # Per-rule overrides
-# rules:
-#   VG001:
-#     enabled: true
-#     severity: error
-#   VG002:
-#     enabled: false
+rules:
+  VG007:
+    enabled: false
+
+  # Schema-drift examples
+  VG104:
+    severity: error
+    engines: [go, sqlalchemy] # explicit table mappings only
+  VG109:
+    severity: warning
+  VG111:
+    severity: warning
+
+  # Query-schema examples
+  VG105:
+    severity: error
+    engines: [goqu, sqlalchemy]
+  VG106:
+    severity: error
+    engines: [goqu, sqlalchemy]

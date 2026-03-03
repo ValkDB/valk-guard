@@ -1,0 +1,10 @@
+query.sql:10: warning [VG001] avoid SELECT *
+    SELECT * FROM users WHERE active = true
+update.sql:5: error [VG002] missing WHERE clause
+    UPDATE users SET active = false
+
+2 findings
+Suppress findings with:
+  SQL: -- valk-guard:disable <RULE_ID>
+  Go:  // valk-guard:disable <RULE_ID>
+  Py:  # valk-guard:disable <RULE_ID>
