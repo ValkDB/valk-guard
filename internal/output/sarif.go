@@ -158,30 +158,31 @@ func (r *SARIFReporter) Report(ctx context.Context, w io.Writer, findings []rule
 // preserving first-seen order.
 func buildSARIFRuleDescriptors(findings []rules.Finding) []sarifRuleDescriptor {
 	ruleSet := make(map[string]struct{})
-	var ruleDescriptors []sarifRuleDescriptor
+	ruleDescriptors := make([]sarifRuleDescriptor, 0, len(findings))
 	ruleMetadata := loadSARIFRuleMetadata()
 
 	for _, f := range findings {
-		if _, ok := ruleSet[f.RuleID]; !ok {
-			ruleSet[f.RuleID] = struct{}{}
-
-			description := f.Message
-			defaultLevel := severityToSARIF(f.Severity)
-			if meta, exists := ruleMetadata[f.RuleID]; exists {
-				if strings.TrimSpace(meta.Description) != "" {
-					description = meta.Description
-				}
-				defaultLevel = severityToSARIF(meta.DefaultSeverity)
-			}
-
-			ruleDescriptors = append(ruleDescriptors, sarifRuleDescriptor{
-				ID:               f.RuleID,
-				ShortDescription: sarifMessage{Text: description},
-				FullDescription:  sarifMessage{Text: description},
-				HelpURI:          sarifRulesHelpURI,
-				DefaultConfig:    sarifRuleConfig{Level: defaultLevel},
-			})
+		if _, ok := ruleSet[f.RuleID]; ok {
+			continue
 		}
+		ruleSet[f.RuleID] = struct{}{}
+
+		description := f.Message
+		defaultLevel := severityToSARIF(f.Severity)
+		if meta, exists := ruleMetadata[f.RuleID]; exists {
+			if strings.TrimSpace(meta.Description) != "" {
+				description = meta.Description
+			}
+			defaultLevel = severityToSARIF(meta.DefaultSeverity)
+		}
+
+		ruleDescriptors = append(ruleDescriptors, sarifRuleDescriptor{
+			ID:               f.RuleID,
+			ShortDescription: sarifMessage{Text: description},
+			FullDescription:  sarifMessage{Text: description},
+			HelpURI:          sarifRulesHelpURI,
+			DefaultConfig:    sarifRuleConfig{Level: defaultLevel},
+		})
 	}
 
 	if ruleDescriptors == nil {

@@ -32,7 +32,7 @@ func (r *UnknownTableReferenceRule) DefaultSeverity() Severity { return Severity
 // CheckQuerySchema validates referenced tables against the schema snapshot.
 func (r *UnknownTableReferenceRule) CheckQuerySchema(
 	snap *schema.Snapshot,
-	stmt scanner.SQLStatement,
+	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,
 ) []Finding {
 	if parsed == nil || len(snap.Tables) == 0 || len(parsed.Tables) == 0 {
@@ -40,7 +40,7 @@ func (r *UnknownTableReferenceRule) CheckQuerySchema(
 	}
 
 	seen := make(map[string]struct{})
-	var findings []Finding
+	findings := make([]Finding, 0, len(parsed.Tables))
 
 	for _, tbl := range parsed.Tables {
 		if tbl.Type != "" && tbl.Type != postgresparser.TableTypeBase {

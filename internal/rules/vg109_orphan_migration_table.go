@@ -49,7 +49,7 @@ func (r *OrphanMigrationTableRule) CheckSchema(snap *schema.Snapshot, models []s
 	}
 	slices.Sort(tableKeys)
 
-	var findings []Finding
+	findings := make([]Finding, 0, len(tableKeys))
 	for _, key := range tableKeys {
 		td := snap.Tables[key]
 		if td == nil {

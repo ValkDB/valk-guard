@@ -35,8 +35,8 @@ func BuildFromStatements(stmts []scanner.SQLStatement, logger *slog.Logger) *Sna
 		if parsed.Command != postgresparser.QueryCommandDDL {
 			continue
 		}
-		for _, action := range parsed.DDLActions {
-			applyDDLAction(snap, &action, stmt.File, stmt.Line)
+		for i := range parsed.DDLActions {
+			applyDDLAction(snap, &parsed.DDLActions[i], stmt.File, stmt.Line)
 		}
 	}
 	return snap

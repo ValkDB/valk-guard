@@ -384,7 +384,7 @@ type Session struct {
 		t.Fatalf("got %d models, want 1", len(got))
 	}
 
-	var names []string
+	names := make([]string, 0, len(got[0].Columns))
 	for _, col := range got[0].Columns {
 		names = append(names, col.Name)
 	}

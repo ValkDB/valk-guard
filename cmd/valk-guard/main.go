@@ -205,8 +205,8 @@ func runScan(opts scanOptions, args []string, stdout, stderr io.Writer) (int, er
 		tmpPath = tmpFile.Name()
 		out = tmpFile
 		defer func() {
-			tmpFile.Close()    //nolint:errcheck // best-effort close
-			os.Remove(tmpPath) //nolint:errcheck // clean up temp file; no-op after successful rename
+			_ = tmpFile.Close()    // best-effort close
+			_ = os.Remove(tmpPath) // clean up temp file; no-op after successful rename
 		}()
 	}
 
@@ -245,7 +245,7 @@ type namedScanner struct {
 	in   []string
 }
 
-// plannedRules organises enabled rules into two buckets: those that apply to
+// plannedRules organizes enabled rules into two buckets: those that apply to
 // every SQL command type (any) and those indexed by a specific command type
 // (byCommand), enabling fast dispatch during analysis.
 type plannedRules struct {
@@ -342,7 +342,7 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 }
 
 // processStatements drains the results channel from the scanner fan-out,
-// parsing each SQL statement, applying enabled rules, and categorising
+// parsing each SQL statement, applying enabled rules, and categorizing
 // statements into migration vs regular buckets for the schema-aware phase.
 func processStatements(
 	ctx context.Context,
@@ -446,7 +446,7 @@ func activeScanners(inputs scannerInputs, bindings []scannerBinding, logger *slo
 // fanOutScanners launches each scanner in its own goroutine, writing
 // discovered statements into a returned channel. The channel is closed once
 // all goroutines finish. Any scanner error is reported via setFirstErr and
-// causes the scan context to be cancelled.
+// causes the scan context to be canceled.
 func fanOutScanners(
 	scanCtx context.Context,
 	active []namedScanner,
@@ -569,7 +569,7 @@ func warnUnknownConfiguredRules(cfg *config.Config, reg *rules.Registry, logger 
 	slices.Sort(knownList)
 	available := strings.Join(knownList, ", ")
 
-	var unknown []string
+	unknown := make([]string, 0, len(cfg.Rules))
 	for id := range cfg.Rules {
 		if _, ok := knownSet[id]; ok {
 			continue
@@ -831,10 +831,10 @@ func runQuerySchemaChecks(
 
 			seenByKey := make(map[queryFindingKeyValue]struct{})
 			for _, snap := range snaps {
-				ruleFindings := rule.CheckQuerySchema(snap, ps.stmt, ps.parsed)
+				ruleFindings := rule.CheckQuerySchema(snap, &ps.stmt, ps.parsed)
 				for i := range ruleFindings {
 					ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
-					key := queryFindingKey(ruleFindings[i])
+					key := queryFindingKey(&ruleFindings[i])
 					if _, ok := seenByKey[key]; ok {
 						continue
 					}
@@ -857,7 +857,7 @@ func querySnapshotsForEngine(
 	modelSnaps map[schema.ModelSource]*schema.Snapshot,
 	querySourceMap map[scanner.Engine][]schema.ModelSource,
 ) []*schema.Snapshot {
-	var snaps []*schema.Snapshot
+	snaps := make([]*schema.Snapshot, 0, 1+len(querySourceMap[engine]))
 	if migrationSnap != nil && len(migrationSnap.Tables) > 0 {
 		snaps = append(snaps, migrationSnap)
 	}
@@ -884,7 +884,7 @@ type queryFindingKeyValue struct {
 	SQL     string
 }
 
-func queryFindingKey(f rules.Finding) queryFindingKeyValue {
+func queryFindingKey(f *rules.Finding) queryFindingKeyValue {
 	return queryFindingKeyValue{
 		RuleID:  f.RuleID,
 		File:    f.File,

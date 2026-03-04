@@ -32,7 +32,7 @@ func (r *UnknownProjectionColumnRule) DefaultSeverity() Severity { return Severi
 // CheckQuerySchema validates SELECT projection column usages against the schema.
 func (r *UnknownProjectionColumnRule) CheckQuerySchema(
 	snap *schema.Snapshot,
-	stmt scanner.SQLStatement,
+	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,
 ) []Finding {
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandSelect || len(snap.Tables) == 0 {
@@ -45,8 +45,9 @@ func (r *UnknownProjectionColumnRule) CheckQuerySchema(
 	}
 
 	seen := make(map[string]struct{})
-	var findings []Finding
-	for _, usage := range parsed.ColumnUsage {
+	findings := make([]Finding, 0, len(parsed.ColumnUsage))
+	for i := range parsed.ColumnUsage {
+		usage := &parsed.ColumnUsage[i]
 		if usage.UsageType != postgresparser.ColumnUsageTypeProjection {
 			continue
 		}

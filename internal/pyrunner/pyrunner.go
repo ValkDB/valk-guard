@@ -3,7 +3,7 @@
 
 // Package pyrunner provides shared Python subprocess plumbing used by
 // packages that invoke embedded Python scripts (e.g. the SQLAlchemy
-// scanner and the pymodel extractor). It centralises temp-file
+// scanner and the pymodel extractor). It centralizes temp-file
 // management, python3 look-up, and directory walking for .py files.
 package pyrunner
 
@@ -32,7 +32,7 @@ func WriteTempScript(content []byte) (scriptPath string, cleanup func(), err err
 	if _, err := tmpScript.Write(content); err != nil {
 		closeErr := tmpScript.Close()
 		if closeErr != nil {
-			return "", removeFn, fmt.Errorf("writing temp script: %w (close error: %v)", err, closeErr)
+			return "", removeFn, fmt.Errorf("writing temp script: %w (close error: %w)", err, closeErr)
 		}
 		return "", removeFn, fmt.Errorf("writing temp script: %w", err)
 	}
@@ -45,7 +45,7 @@ func WriteTempScript(content []byte) (scriptPath string, cleanup func(), err err
 
 // ExecScript invokes python3 with the given script path and file arguments,
 // returning the raw stdout bytes. It checks that python3 is available via
-// LookPath, honours the context for timeouts and cancellation, and captures
+// LookPath, honors the context for timeouts and cancellation, and captures
 // stderr for error diagnostics.
 func ExecScript(ctx context.Context, scriptPath string, files []string) ([]byte, error) {
 	if _, err := exec.LookPath("python3"); err != nil {
@@ -65,7 +65,7 @@ func ExecScript(ctx context.Context, scriptPath string, files []string) ([]byte,
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return nil, fmt.Errorf("python script execution timed out: %w", ctx.Err())
 			}
-			return nil, fmt.Errorf("python script execution cancelled: %w", ctx.Err())
+			return nil, fmt.Errorf("python script execution canceled: %w", ctx.Err())
 		}
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
@@ -81,7 +81,7 @@ func ExecScript(ctx context.Context, scriptPath string, files []string) ([]byte,
 // content contains at least one of the provided marker strings, and returns
 // their paths. Files that do not contain any marker are skipped. This is
 // the "quick-reject" filter that avoids unnecessary subprocess invocations.
-func CollectPyCandidates(ctx context.Context, roots []string, markers []string) ([]string, error) {
+func CollectPyCandidates(ctx context.Context, roots, markers []string) ([]string, error) {
 	var candidates []string
 
 	for _, root := range roots {

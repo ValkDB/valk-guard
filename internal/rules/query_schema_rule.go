@@ -17,5 +17,5 @@ type QuerySchemaRule interface {
 	DefaultSeverity() Severity
 	// CheckQuerySchema validates a parsed query statement's column usage
 	// against the given schema snapshot and returns any findings.
-	CheckQuerySchema(snap *schema.Snapshot, stmt scanner.SQLStatement, parsed *postgresparser.ParsedQuery) []Finding
+	CheckQuerySchema(snap *schema.Snapshot, stmt *scanner.SQLStatement, parsed *postgresparser.ParsedQuery) []Finding
 }

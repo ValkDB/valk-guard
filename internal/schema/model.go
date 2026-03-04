@@ -19,6 +19,7 @@ const (
 // source code or inferred by convention.
 type MappingKind string
 
+// Mapping kind values for model/table/column provenance tracking.
 const (
 	MappingKindExplicit MappingKind = "explicit"
 	MappingKindInferred MappingKind = "inferred"

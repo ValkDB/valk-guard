@@ -32,7 +32,7 @@ func (r *UnknownFilterColumnRule) DefaultSeverity() Severity { return SeverityEr
 // CheckQuerySchema validates filter and join column usages against the schema.
 func (r *UnknownFilterColumnRule) CheckQuerySchema(
 	snap *schema.Snapshot,
-	stmt scanner.SQLStatement,
+	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,
 ) []Finding {
 	if parsed == nil || len(snap.Tables) == 0 {
@@ -52,8 +52,9 @@ func (r *UnknownFilterColumnRule) CheckQuerySchema(
 	}
 
 	seen := make(map[string]struct{})
-	var findings []Finding
-	for _, usage := range parsed.ColumnUsage {
+	findings := make([]Finding, 0, len(parsed.ColumnUsage))
+	for i := range parsed.ColumnUsage {
+		usage := &parsed.ColumnUsage[i]
 		var contextLabel string
 		switch usage.UsageType {
 		case postgresparser.ColumnUsageTypeFilter:

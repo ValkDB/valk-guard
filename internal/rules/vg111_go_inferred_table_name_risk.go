@@ -30,7 +30,7 @@ func (r *GoInferredTableNameRiskRule) DefaultSeverity() Severity { return Severi
 // CheckSchema reports a warning when a Go model has inferred mappings and no
 // explicit table mapping.
 func (r *GoInferredTableNameRiskRule) CheckSchema(_ *schema.Snapshot, models []schema.ModelDef) []Finding {
-	var findings []Finding
+	findings := make([]Finding, 0, len(models))
 
 	for _, model := range models {
 		if model.Source != schema.ModelSourceGo {

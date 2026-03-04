@@ -23,6 +23,7 @@ const ruleEngineAll = "all"
 // mappings when explicit ORM metadata is absent.
 type GoModelMappingMode string
 
+// Go model mapping mode values for column/table resolution.
 const (
 	GoModelMappingStrict     GoModelMappingMode = "strict"
 	GoModelMappingBalanced   GoModelMappingMode = "balanced"

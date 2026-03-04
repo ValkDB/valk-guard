@@ -49,7 +49,7 @@ func resolveQueryTables(snap *schema.Snapshot, parsed *postgresparser.ParsedQuer
 
 // resolveUsageTable resolves a column usage entry to a concrete schema table.
 // Unqualified columns are only resolved when exactly one base table is known.
-func resolveUsageTable(usage postgresparser.ColumnUsage, resolved resolvedQueryTables) (*schema.TableDef, bool) {
+func resolveUsageTable(usage *postgresparser.ColumnUsage, resolved resolvedQueryTables) (*schema.TableDef, bool) {
 	if alias := normalizeIdentifier(usage.TableAlias); alias != "" {
 		td, ok := resolved.byAlias[alias]
 		return td, ok

@@ -34,7 +34,7 @@ func (r *AmbiguousUnqualifiedColumnRule) DefaultSeverity() Severity { return Sev
 // CheckQuerySchema validates unqualified column usage against resolved tables.
 func (r *AmbiguousUnqualifiedColumnRule) CheckQuerySchema(
 	snap *schema.Snapshot,
-	stmt scanner.SQLStatement,
+	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,
 ) []Finding {
 	if parsed == nil || len(snap.Tables) == 0 {
@@ -47,9 +47,10 @@ func (r *AmbiguousUnqualifiedColumnRule) CheckQuerySchema(
 	}
 
 	seen := make(map[string]struct{})
-	var findings []Finding
+	findings := make([]Finding, 0, len(parsed.ColumnUsage))
 
-	for _, usage := range parsed.ColumnUsage {
+	for i := range parsed.ColumnUsage {
+		usage := &parsed.ColumnUsage[i]
 		contextLabel, ok := ambiguousUsageContext(usage.UsageType)
 		if !ok {
 			continue

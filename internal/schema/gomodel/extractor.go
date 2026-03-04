@@ -19,6 +19,7 @@ import (
 // mappings when explicit metadata is missing.
 type MappingMode string
 
+// Mapping mode values controlling inference behavior.
 const (
 	MappingModeStrict     MappingMode = "strict"
 	MappingModeBalanced   MappingMode = "balanced"
@@ -357,8 +358,10 @@ func returnedStringLiteral(fn *ast.FuncDecl) (string, bool) {
 // DBTagProvider resolves mappings from `db:"column"` struct tags.
 type DBTagProvider struct{}
 
+// Name returns the provider identifier.
 func (p *DBTagProvider) Name() string { return "db_tag" }
 
+// ResolveColumn extracts the column name from a `db` struct tag.
 func (p *DBTagProvider) ResolveColumn(field FieldContext, _ MappingMode) (ColumnResolution, bool) {
 	value, ok := field.Tag.Lookup("db")
 	if !ok {
@@ -374,8 +377,10 @@ func (p *DBTagProvider) ResolveColumn(field FieldContext, _ MappingMode) (Column
 // GormTagProvider resolves mappings from `gorm:"column:..."` struct tags.
 type GormTagProvider struct{}
 
+// Name returns the provider identifier.
 func (p *GormTagProvider) Name() string { return "gorm_tag" }
 
+// ResolveColumn extracts the column name from a `gorm:"column:..."` struct tag.
 func (p *GormTagProvider) ResolveColumn(field FieldContext, _ MappingMode) (ColumnResolution, bool) {
 	raw, ok := field.Tag.Lookup("gorm")
 	if !ok {
@@ -392,8 +397,10 @@ func (p *GormTagProvider) ResolveColumn(field FieldContext, _ MappingMode) (Colu
 // from field names in non-strict modes.
 type InferredNameProvider struct{}
 
+// Name returns the provider identifier.
 func (p *InferredNameProvider) Name() string { return "field_name" }
 
+// ResolveColumn infers a snake_case column name from the field name.
 func (p *InferredNameProvider) ResolveColumn(field FieldContext, mode MappingMode) (ColumnResolution, bool) {
 	if mode == MappingModeStrict {
 		return ColumnResolution{}, false
@@ -418,8 +425,10 @@ func (p *InferredNameProvider) ResolveColumn(field FieldContext, mode MappingMod
 // TableNameMethodProvider resolves explicit table names from TableName() string methods.
 type TableNameMethodProvider struct{}
 
+// Name returns the provider identifier.
 func (p *TableNameMethodProvider) Name() string { return "table_name_method" }
 
+// ResolveTable returns the table name from a TableName() string method.
 func (p *TableNameMethodProvider) ResolveTable(ctx TableContext, _ MappingMode) (TableResolution, bool) {
 	tableName := strings.TrimSpace(ctx.MethodTableNames[ctx.TypeName])
 	if tableName == "" {
@@ -436,8 +445,10 @@ func (p *TableNameMethodProvider) ResolveTable(ctx TableContext, _ MappingMode) 
 // InferredTableNameProvider resolves inferred table names from struct type names.
 type InferredTableNameProvider struct{}
 
+// Name returns the provider identifier.
 func (p *InferredTableNameProvider) Name() string { return "type_name" }
 
+// ResolveTable infers the table name from the struct type name.
 func (p *InferredTableNameProvider) ResolveTable(ctx TableContext, _ MappingMode) (TableResolution, bool) {
 	if strings.TrimSpace(ctx.TypeName) == "" {
 		return TableResolution{}, false
@@ -514,8 +525,8 @@ func toSnakeCase(s string) string {
 		return ""
 	}
 
-	var out []rune
 	runes := []rune(s)
+	out := make([]rune, 0, len(runes)+4)
 	for i, r := range runes {
 		if i > 0 && r >= 'A' && r <= 'Z' {
 			prev := runes[i-1]
@@ -525,7 +536,7 @@ func toSnakeCase(s string) string {
 			}
 		}
 		if r >= 'A' && r <= 'Z' {
-			r = r + ('a' - 'A')
+			r += 'a' - 'A'
 		}
 		out = append(out, r)
 	}

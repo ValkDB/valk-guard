@@ -36,7 +36,7 @@ func (r *mockQuerySchemaRule) ID() string                { return r.id }
 func (r *mockQuerySchemaRule) Name() string              { return "mock-query-schema" }
 func (r *mockQuerySchemaRule) Description() string       { return "mock query schema rule" }
 func (r *mockQuerySchemaRule) DefaultSeverity() Severity { return SeverityWarning }
-func (r *mockQuerySchemaRule) CheckQuerySchema(_ *schema.Snapshot, _ scanner.SQLStatement, _ *postgresparser.ParsedQuery) []Finding {
+func (r *mockQuerySchemaRule) CheckQuerySchema(_ *schema.Snapshot, _ *scanner.SQLStatement, _ *postgresparser.ParsedQuery) []Finding {
 	return nil
 }
 
