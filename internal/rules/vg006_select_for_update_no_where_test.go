@@ -55,6 +55,21 @@ func TestSelectForUpdateNoWhereRule(t *testing.T) {
 			wantCount: 1,
 		},
 		{
+			name:      "for update with limit one is not flagged",
+			sql:       "SELECT id FROM jobs FOR UPDATE LIMIT 1",
+			wantCount: 0,
+		},
+		{
+			name:      "for update skip locked limit one worker pattern",
+			sql:       "SELECT id FROM jobs FOR UPDATE SKIP LOCKED LIMIT 1",
+			wantCount: 0,
+		},
+		{
+			name:      "for update skip locked without limit still flagged",
+			sql:       "SELECT id FROM jobs FOR UPDATE SKIP LOCKED",
+			wantCount: 1,
+		},
+		{
 			name:      "nil parsed query",
 			sql:       "",
 			wantCount: 0,

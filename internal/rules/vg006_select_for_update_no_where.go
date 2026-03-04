@@ -35,6 +35,11 @@ func (r *SelectForUpdateNoWhereRule) Check(parsed *postgresparser.ParsedQuery, f
 	if !hasForUpdateClause(rawSQL) || hasClause(parsed.Where) {
 		return nil
 	}
+	// Bounded locking queries are common worker patterns and are intentionally
+	// not flagged (for example: SELECT ... FOR UPDATE LIMIT 1).
+	if hasLimitClause(parsed) {
+		return nil
+	}
 	return []Finding{
 		newFinding(
 			r.ID(),

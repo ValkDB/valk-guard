@@ -33,7 +33,7 @@ rules:
 
 Use inline directives for one-off cases near the SQL source.
 
-The directive must appear on the same line as the statement or the line immediately before it. Blank lines between the directive and the statement will prevent suppression.
+The directive must be on a comment line (`--`, `//`, or `#`) and apply to the next statement line (or the same line number in scanner output). Blank lines between the directive and statement prevent suppression.
 
 SQL:
 

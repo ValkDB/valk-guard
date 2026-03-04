@@ -31,7 +31,7 @@ permissions:
 ```
 
 This keeps CI non-blocking for findings (`exit 1`) while still posting review comments and preserving machine-readable output.
-Exit code `1` (findings detected) is treated as non-fatal; only exit code `2` or higher (config/runtime/parser error) fails the step.
+Exit code `1` (findings detected) is treated as non-fatal; only exit code `2` or higher (config/runtime error) fails the step.
 
 ## Full Example Workflow (Install + JSON + SARIF)
 

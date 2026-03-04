@@ -457,21 +457,21 @@ func predicateFromExpr(expr ast.Expr, alias string) string {
 		col := columnNameFromExpr(sel.X, alias, "synthetic_col")
 		switch sel.Sel.Name {
 		case "Like":
-			return fmt.Sprintf("%s LIKE %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s LIKE %s", col, sqlValue(firstArg(e.Args)))
 		case "ILike":
-			return fmt.Sprintf("%s ILIKE %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s ILIKE %s", col, sqlValue(firstArg(e.Args)))
 		case "Eq":
-			return fmt.Sprintf("%s = %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s = %s", col, sqlValue(firstArg(e.Args)))
 		case "Neq":
-			return fmt.Sprintf("%s <> %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s <> %s", col, sqlValue(firstArg(e.Args)))
 		case "Gt":
-			return fmt.Sprintf("%s > %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s > %s", col, sqlValue(firstArg(e.Args)))
 		case "Gte":
-			return fmt.Sprintf("%s >= %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s >= %s", col, sqlValue(firstArg(e.Args)))
 		case "Lt":
-			return fmt.Sprintf("%s < %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s < %s", col, sqlValue(firstArg(e.Args)))
 		case "Lte":
-			return fmt.Sprintf("%s <= %s", col, sqlValue(firstArg(e.Args), alias))
+			return fmt.Sprintf("%s <= %s", col, sqlValue(firstArg(e.Args)))
 		}
 
 	case *ast.CompositeLit:
@@ -483,7 +483,7 @@ func predicateFromExpr(expr ast.Expr, alias string) string {
 			}
 			key := literalOrIdent(kv.Key)
 			key = safeIdent(key, "synthetic_col")
-			predicates = append(predicates, fmt.Sprintf("%s = %s", key, sqlValue(kv.Value, alias)))
+			predicates = append(predicates, fmt.Sprintf("%s = %s", key, sqlValue(kv.Value)))
 		}
 		if len(predicates) > 0 {
 			return strings.Join(predicates, " AND ")
@@ -593,7 +593,7 @@ func literalOrIdent(expr ast.Expr) string {
 // embedding in a synthetic query. String literals are single-quoted, numeric
 // literals are emitted as-is, boolean/nil identifiers are mapped to SQL
 // keywords, and all other expressions are replaced with 'synthetic_value'.
-func sqlValue(expr ast.Expr, alias string) string {
+func sqlValue(expr ast.Expr) string {
 	if expr == nil {
 		return "NULL"
 	}
@@ -625,7 +625,6 @@ func sqlValue(expr ast.Expr, alias string) string {
 		}
 	}
 
-	_ = alias
 	return "'synthetic_value'"
 }
 

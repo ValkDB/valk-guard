@@ -8,8 +8,12 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
 verify-go-version:
-	@if [ "$(GO_VERSION)" != "$(REQUIRED_GO_VERSION)" ]; then \
-		echo "Go $(REQUIRED_GO_VERSION) is required (found $(GO_VERSION))."; \
+	@if [ -z "$(GO_VERSION)" ]; then \
+		echo "Unable to determine Go version."; \
+		exit 1; \
+	fi
+	@if [ "$$(printf '%s\n%s\n' "$(REQUIRED_GO_VERSION)" "$(GO_VERSION)" | sort -V | head -n1)" != "$(REQUIRED_GO_VERSION)" ]; then \
+		echo "Go >= $(REQUIRED_GO_VERSION) is required (found $(GO_VERSION))."; \
 		exit 1; \
 	fi
 

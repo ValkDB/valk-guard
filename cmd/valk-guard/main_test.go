@@ -32,7 +32,7 @@ func TestRunScanJSONFindingsExitCode(t *testing.T) {
 	}
 }
 
-func TestRunScanParseErrorExitCode(t *testing.T) {
+func TestRunScanParseErrorIsNonFatal(t *testing.T) {
 	tmpDir := t.TempDir()
 	sqlPath := filepath.Join(tmpDir, "broken.sql")
 	if err := os.WriteFile(sqlPath, []byte("SELECT FROM;"), 0644); err != nil {
@@ -42,11 +42,11 @@ func TestRunScanParseErrorExitCode(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := run([]string{"scan", tmpDir, "--format", "json"}, &stdout, &stderr)
-	if code != exitError {
-		t.Fatalf("expected exit code %d, got %d", exitError, code)
+	if code != exitSuccess {
+		t.Fatalf("expected exit code %d, got %d", exitSuccess, code)
 	}
-	if !strings.Contains(stderr.String(), "parse error at") {
-		t.Fatalf("expected parse error message, got %q", stderr.String())
+	if !strings.Contains(stderr.String(), "skipping unparseable SQL statement") {
+		t.Fatalf("expected parse warning message, got %q", stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "uses a PostgreSQL parser") {
 		t.Fatalf("expected parse remediation hint, got %q", stderr.String())
@@ -782,7 +782,7 @@ func TestRunScanNewSchemaRulesVG109VG110VG111(t *testing.T) {
 	}
 }
 
-func TestRunScanOutputFileNotCreatedOnError(t *testing.T) {
+func TestRunScanOutputFileCreatedWhenOnlyParseWarnings(t *testing.T) {
 	tmpDir := t.TempDir()
 	sqlPath := filepath.Join(tmpDir, "broken.sql")
 	if err := os.WriteFile(sqlPath, []byte("SELECT FROM;"), 0644); err != nil {
@@ -793,11 +793,15 @@ func TestRunScanOutputFileNotCreatedOnError(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	code := run([]string{"scan", tmpDir, "--format", "json", "--output", outputPath}, &stdout, &stderr)
-	if code != exitError {
-		t.Fatalf("expected exit code %d, got %d", exitError, code)
+	if code != exitSuccess {
+		t.Fatalf("expected exit code %d, got %d", exitSuccess, code)
 	}
-	if _, err := os.Stat(outputPath); err == nil {
-		t.Fatalf("expected output file %s to not exist after scan error, but it does", outputPath)
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("expected output file to exist: %v", err)
+	}
+	if !strings.Contains(string(data), `"findings": []`) {
+		t.Fatalf("expected empty findings JSON envelope, got: %s", string(data))
 	}
 }
 

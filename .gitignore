@@ -1,6 +1,9 @@
 # Binary
 /valk-guard
 /valk-guard.exe
+/go_goqu
+/go_std
+/schema_drift
 
 # Distribution
 dist/

@@ -120,7 +120,7 @@ func newScanCmd(stdout, stderr io.Writer) *cobra.Command {
 			"Exit codes:",
 			"  0: no findings",
 			"  1: findings detected",
-			"  2: config/runtime/parser error",
+			"  2: config/runtime error",
 		}, "\n"),
 		Example: strings.Join([]string{
 			"  valk-guard scan .",
@@ -380,12 +380,13 @@ func processStatements(
 		sr.stmtCount++
 		parsed, err := scanner.ParseStatement(stmt.SQL)
 		if err != nil {
-			setFirstErr(fmt.Errorf(
-				"parse error at %s:%d: %w; valk-guard uses a PostgreSQL parser; to skip this file, add it to 'exclude' in .valk-guard.yaml",
-				stmt.File,
-				stmt.Line,
-				err,
-			))
+			logger.Warn(
+				"skipping unparseable SQL statement",
+				"file", stmt.File,
+				"line", stmt.Line,
+				"error", err,
+				"hint", "valk-guard uses a PostgreSQL parser; add path to exclude in .valk-guard.yaml if intentional",
+			)
 			continue
 		}
 		if parsed == nil {

@@ -16,7 +16,7 @@ Schema-aware detection runs as a post-scan phase:
 3. **Model extraction**: Go structs and Python SQLAlchemy classes are extracted into generic `schema.ModelDef`.
 4. **Model cross-reference**: Model schema rules (`VG101`-`VG104`, `VG109`-`VG111`) compare model metadata against migration schema.
 
-    If a statement cannot be parsed, Valk Guard fails the run (exit code `2`) and includes remediation guidance to exclude the file path in `.valk-guard.yaml`.
+    If a statement cannot be parsed, Valk Guard logs a warning and skips only that statement. Warning logs include remediation guidance to exclude the file path in `.valk-guard.yaml`.
 
 Source-to-engine mapping is controlled in `cmd/valk-guard/source_bindings.go`:
 

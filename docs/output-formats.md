@@ -20,7 +20,10 @@ Example:
 db/query.sql:10: warning [VG001] avoid SELECT *; project only required columns
 
 1 finding
-Suppress next statement with: -- valk-guard:disable <RULE_ID> (SQL), // valk-guard:disable <RULE_ID> (Go), # valk-guard:disable <RULE_ID> (Python)
+Suppress findings with:
+  SQL: -- valk-guard:disable <RULE_ID>
+  Go:  // valk-guard:disable <RULE_ID>
+  Py:  # valk-guard:disable <RULE_ID>
 ```
 
 ## JSON
@@ -31,7 +34,13 @@ Use:
 valk-guard scan . --format json
 ```
 
-Each finding object contains:
+JSON output is a versioned envelope:
+
+- `version` (`string`)
+- `findings` (`array`)
+- `summary.total` (`number`)
+
+Each item in `findings` contains:
 
 - `rule_id` (`string`)
 - `severity` (`"error" | "warning" | "info"`)
@@ -44,17 +53,23 @@ Each finding object contains:
 Example:
 
 ```json
-[
-  {
-    "rule_id": "VG001",
-    "severity": "warning",
-    "message": "avoid SELECT *; project only required columns",
-    "file": "db/query.sql",
-    "line": 10,
-    "column": 1,
-    "sql": "SELECT * FROM users"
+{
+  "version": "1.0.0",
+  "findings": [
+    {
+      "rule_id": "VG001",
+      "severity": "warning",
+      "message": "avoid SELECT *; project only required columns",
+      "file": "db/query.sql",
+      "line": 10,
+      "column": 1,
+      "sql": "SELECT * FROM users"
+    }
+  ],
+  "summary": {
+    "total": 1
   }
-]
+}
 ```
 
 ## SARIF

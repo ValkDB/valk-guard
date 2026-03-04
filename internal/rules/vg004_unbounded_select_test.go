@@ -30,6 +30,26 @@ func TestUnboundedSelectRule(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name:      "count aggregate without group by",
+			sql:       "SELECT COUNT(*) FROM users",
+			wantCount: 0,
+		},
+		{
+			name:      "multiple aggregates without group by",
+			sql:       "SELECT COUNT(*), MAX(id) FROM users",
+			wantCount: 0,
+		},
+		{
+			name:      "count aggregate with group by remains bounded by caller",
+			sql:       "SELECT COUNT(*) FROM users GROUP BY status",
+			wantCount: 1,
+		},
+		{
+			name:      "constant select without table source",
+			sql:       "SELECT 1",
+			wantCount: 0,
+		},
+		{
 			name:      "nil parsed query",
 			sql:       "",
 			wantCount: 0,
