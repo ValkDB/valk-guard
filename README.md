@@ -265,66 +265,66 @@ Output format reference: [`docs/output-formats.md`](docs/output-formats.md)
 
 ```mermaid
 flowchart LR
-    subgraph S1[1) Source Inputs]
-      A1[.sql files]
-      A2[Go code]
-      A3[Goqu usage]
-      A4[Python SQLAlchemy]
-    end
+  subgraph S1["1. Source Inputs"]
+    A1[".sql files"]
+    A2["Go code"]
+    A3["Goqu usage"]
+    A4["Python SQLAlchemy"]
+  end
 
-    subgraph S2[2) Statement Extraction]
-      B1[Raw SQL Scanner]
-      B2[Go AST Scanner]
-      B3[Goqu Scanner]
-      B4[SQLAlchemy Scanner]
-      B5[Statements with file/line mapping]
-    end
+  subgraph S2["2. Statement Extraction"]
+    B1["Raw SQL Scanner"]
+    B2["Go AST Scanner"]
+    B3["Goqu Scanner"]
+    B4["SQLAlchemy Scanner"]
+    B5["Statements with file/line mapping"]
+  end
 
-    subgraph S3[3) Parsing and Schema Context]
-      C1[postgresparser]
-      C2[DDL -> Schema Snapshot]
-      C3[Go Model Extractor]
-      C4[Python Model Extractor]
-      C5[Model Snapshots]
-    end
+  subgraph S3["3. Parsing and Schema Context"]
+    C1["postgresparser"]
+    C2["DDL -> Schema Snapshot"]
+    C3["Go Model Extractor"]
+    C4["Python Model Extractor"]
+    C5["Model Snapshots"]
+  end
 
-    subgraph S4[4) Rule Evaluation]
-      D1[Query Rules VG001-VG008]
-      D2[Query-Schema Rules VG105-VG108]
-      D3[Model Schema Rules VG101-VG104 and VG109-VG111]
-    end
+  subgraph S4["4. Rule Evaluation"]
+    D1["Query Rules VG001-VG008"]
+    D2["Query-Schema Rules VG105-VG108"]
+    D3["Model Schema Rules VG101-VG104 and VG109-VG111"]
+  end
 
-    subgraph S5[5) Output]
-      E0[Findings]
-      E1[terminal]
-      E2[json]
-      E3[sarif]
-    end
+  subgraph S5["5. Output"]
+    E0["Findings"]
+    E1["terminal"]
+    E2["json"]
+    E3["sarif"]
+  end
 
-    A1 --> B1 --> B5
-    A2 --> B2 --> B5
-    A3 --> B3 --> B5
-    A4 --> B4 --> B5
+  A1 --> B1 --> B5
+  A2 --> B2 --> B5
+  A3 --> B3 --> B5
+  A4 --> B4 --> B5
 
-    B5 --> C1
-    C1 --> D1
-    C1 --> C2
-    C1 --> D2
+  B5 --> C1
+  C1 --> D1
+  C1 --> C2
+  C1 --> D2
 
-    A2 --> C3 --> C5
-    A4 --> C4 --> C5
+  A2 --> C3 --> C5
+  A4 --> C4 --> C5
 
-    C2 --> D2
-    C5 --> D2
-    C2 --> D3
-    C5 --> D3
+  C2 --> D2
+  C5 --> D2
+  C2 --> D3
+  C5 --> D3
 
-    D1 --> E0
-    D2 --> E0
-    D3 --> E0
-    E0 --> E1
-    E0 --> E2
-    E0 --> E3
+  D1 --> E0
+  D2 --> E0
+  D3 --> E0
+  E0 --> E1
+  E0 --> E2
+  E0 --> E3
 ```
 
 ---
