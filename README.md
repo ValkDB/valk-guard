@@ -35,6 +35,25 @@ That's it. Zero config required — all rules are enabled by default.
 
 ---
 
+## Documentation Map
+
+- Rule behavior and schema-aware internals: [`docs/schema-drift.md`](docs/schema-drift.md)
+- Suppression patterns (inline, per-rule, exclusions): [`docs/suppression.md`](docs/suppression.md)
+- CI reviewer workflow and non-blocking mode: [`docs/ci-reviewer-mode.md`](docs/ci-reviewer-mode.md)
+- Output contracts (`terminal`, `json`, `sarif`): [`docs/output-formats.md`](docs/output-formats.md)
+
+## End-to-End Example PRs
+
+Live demos in [`ValkDB/valk-guard-example`](https://github.com/ValkDB/valk-guard-example):
+
+- Dist 1 (`VG001`-`VG003`): https://github.com/ValkDB/valk-guard-example/pull/2
+- Dist 2 (`VG004`-`VG006`): https://github.com/ValkDB/valk-guard-example/pull/3
+- Dist 3 (`VG007`, `VG008`, `VG101`-`VG105`): https://github.com/ValkDB/valk-guard-example/pull/4
+- Dist 4 (`VG106`-`VG111`): https://github.com/ValkDB/valk-guard-example/pull/5
+- Suppression showcase (inline + global): https://github.com/ValkDB/valk-guard-example/pull/6
+
+---
+
 ## What It Catches
 
 Valk Guard ships with **19 rules** across three categories:
@@ -94,6 +113,20 @@ Grab a pre-built binary from [GitHub Releases](https://github.com/ValkDB/valk-gu
 ```bash
 go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
 ```
+
+### Install in CI (Recommended: Pin Version)
+
+For reproducible CI output and stable downstream processing, pin a release tag (or commit):
+
+```bash
+go install github.com/valkdb/valk-guard/cmd/valk-guard@vX.Y.Z
+```
+
+Why pin in CI:
+
+- avoids unexpected behavior changes from `@latest`
+- keeps output processing steps (for example jq/reviewdog conversion) stable
+- makes build and review results reproducible across reruns
 
 ### Build From Source
 
