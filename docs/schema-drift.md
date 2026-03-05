@@ -5,6 +5,13 @@ Valk Guard builds a migration schema snapshot and runs two schema-aware checks:
 1. Model schema checks (`VG101`-`VG104`, `VG109`-`VG111`)
 2. Query-schema checks (`VG105`-`VG108`)
 
+## Live Demo PRs
+
+End-to-end schema-aware demos in `valk-guard-example`:
+
+- Dist 3 (`VG007`, `VG008`, `VG101`-`VG105`): https://github.com/ValkDB/valk-guard-example/pull/4
+- Dist 4 (`VG106`-`VG111`): https://github.com/ValkDB/valk-guard-example/pull/5
+
 ## How It Works
 
 Schema-aware detection runs as a post-scan phase:

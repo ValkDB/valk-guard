@@ -33,6 +33,8 @@ permissions:
 This keeps CI non-blocking for findings (`exit 1`) while still posting review comments and preserving machine-readable output.
 Exit code `1` (findings detected) is treated as non-fatal; only exit code `2` or higher (config/runtime error) fails the step.
 
+For CI reproducibility, prefer pinning the install target to a version/tag instead of `@latest`.
+
 ## Full Example Workflow (Install + JSON + SARIF)
 
 ```yaml
@@ -47,6 +49,10 @@ permissions:
   pull-requests: write
   security-events: write
 
+env:
+  # Pin in CI for stable behavior and repeatable output processing.
+  VALK_GUARD_INSTALL_REF: vX.Y.Z
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -59,7 +65,7 @@ jobs:
           go-version: "1.25.6"
 
       - name: Install valk-guard
-        run: go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
+        run: go install github.com/valkdb/valk-guard/cmd/valk-guard@${VALK_GUARD_INSTALL_REF}
 
       - name: Collect changed files
         id: changed
@@ -100,6 +106,15 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: valk-guard.sarif
+```
+
+## JSON Envelope Note (jq / reviewdog converters)
+
+`--format json` emits a versioned envelope (`version`, `findings`, `summary`).
+If you post-process with `jq`, normalize input before iterating findings:
+
+```bash
+jq -cr '((if type == "array" then . else .findings end) // [])[]'
 ```
 
 ## Changed-Files-Only Pattern (Recommended for PRs)
