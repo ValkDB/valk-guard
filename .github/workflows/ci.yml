@@ -128,10 +128,6 @@ jobs:
         working-directory: valk-guard
         run: go build -ldflags "-s -w -X main.version=${GITHUB_SHA}" -o valk-guard ./cmd/valk-guard/
 
-      - name: Initialize valk-guard JSON report
-        working-directory: valk-guard
-        run: echo '{"version":"1.0.0","findings":[],"summary":{"total":0}}' > valk-guard.json
-
       - name: Collect changed SQL-related files
         id: changed
         working-directory: valk-guard
@@ -161,7 +157,7 @@ jobs:
           mapfile -t files < changed-files.txt
 
           set +e
-          ./valk-guard scan "${files[@]}" --format json > valk-guard.json
+          ./valk-guard scan "${files[@]}" --format rdjsonl > valk-guard.rdjsonl
           code=$?
           set -e
 
@@ -171,45 +167,16 @@ jobs:
             exit "$code"
           fi
 
-      - name: Upload valk-guard JSON report
-        if: always()
+      - name: Upload valk-guard rdjsonl report
+        if: always() && steps.changed.outputs.has_files == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: valk-guard-pr-json-${{ github.event.pull_request.number }}
-          path: valk-guard/valk-guard.json
+          name: valk-guard-pr-rdjsonl-${{ github.event.pull_request.number }}
+          path: valk-guard/valk-guard.rdjsonl
           if-no-files-found: error
 
       - uses: reviewdog/action-setup@d8a7baabd7f3e8544ee4dbde3ee41d0011c3a93f # v1.5.0
         if: steps.changed.outputs.has_files == 'true'
-
-      - name: Convert findings to reviewdog format
-        if: steps.changed.outputs.has_files == 'true'
-        working-directory: valk-guard
-        run: |
-          jq -cr '
-            ((if type == "object" then .findings else . end) // [])[] |
-            {
-              source: {
-                name: "valk-guard",
-                url: "https://github.com/valkdb/valk-guard"
-              },
-              severity: (
-                if .severity == "error" then "ERROR"
-                elif .severity == "warning" then "WARNING"
-                else "INFO"
-                end
-              ),
-              code: { value: .rule_id },
-              message: (.rule_id + ": " + .message),
-              location: {
-                path: .file,
-                range: {
-                  start: { line: .line, column: (.column // 1) },
-                  end:   { line: .line, column: ((.column // 1) + 1) }
-                }
-              }
-            }
-          ' valk-guard.json > valk-guard.rdjsonl
 
       - name: Post PR review comments
         if: steps.changed.outputs.has_files == 'true'

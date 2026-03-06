@@ -133,7 +133,7 @@ func TestApplyStatementRange(t *testing.T) {
 		},
 	}
 
-	applyStatementRange(findings, scanner.SQLStatement{
+	applyStatementRange(findings, &scanner.SQLStatement{
 		File:      "complex_queries.sql",
 		Line:      21,
 		Column:    5,
@@ -755,7 +755,7 @@ func TestRunScanNewSchemaRulesVG109VG110VG111(t *testing.T) {
 		filepath.Join(tmpDir, "db", "migrations", "001.sql"),
 		[]byte(strings.Join([]string{
 			"CREATE TABLE users (id INTEGER, email TEXT);",
-			"CREATE TABLE sessions (id INTEGER);",
+			"CREATE TABLE session (id INTEGER, created_at INTEGER);",
 			"CREATE TABLE orphan_table (id INTEGER);",
 		}, "\n")),
 		0644,
@@ -773,7 +773,8 @@ func TestRunScanNewSchemaRulesVG109VG110VG111(t *testing.T) {
 		"}",
 		"",
 		"type Session struct {",
-		"    ID int",
+		"    ID        int `db:\"id\"`",
+		"    CreatedAt int",
 		"}",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(tmpDir, "models.go"), []byte(goModels), 0644); err != nil {

@@ -46,6 +46,28 @@ type Rule interface {
 	Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding
 }
 
+// NormalizeRange returns a valid 1-based range, falling back to minimal
+// single-column spans when needed.
+func NormalizeRange(line, column, endLine, endColumn int) (startL, startC, endL, endC int) {
+	if line < 1 {
+		line = 1
+	}
+	if column < 1 {
+		column = 1
+	}
+	if endLine < line {
+		endLine = line
+	}
+	if endColumn < 1 {
+		if endLine > line {
+			endColumn = 1
+		} else {
+			endColumn = column + 1
+		}
+	}
+	return line, column, endLine, endColumn
+}
+
 // CommandTargetedRule is an optional interface for rules that only apply to
 // specific SQL command types. Rules that do not implement this interface are
 // treated as cross-cutting and run for all command types.

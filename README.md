@@ -1,17 +1,48 @@
-# Valk Guard
+<p align="center">
+  <h1 align="center">Valk Guard</h1>
+  <p align="center">
+    <strong>The SQL linter that catches production disasters at PR time.</strong>
+  </p>
+  <p align="center">
+    <code>DELETE FROM orders</code> without a <code>WHERE</code>? <code>SELECT *</code> on a 50M-row table?<br/>
+    Valk Guard finds them in your code — before your pager does at 3am.
+  </p>
+</p>
 
-[![CI](https://github.com/ValkDB/valk-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/ValkDB/valk-guard/actions/workflows/ci.yml)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/ValkDB/valk-guard)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/valkdb/valk-guard)](https://goreportcard.com/report/github.com/valkdb/valk-guard)
-[![Go Reference](https://pkg.go.dev/badge/github.com/valkdb/valk-guard.svg)](https://pkg.go.dev/github.com/valkdb/valk-guard)
+<p align="center">
+  <a href="https://github.com/ValkDB/valk-guard/actions/workflows/ci.yml"><img src="https://github.com/ValkDB/valk-guard/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/github/go-mod/go-version/ValkDB/valk-guard" alt="Go Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="https://goreportcard.com/report/github.com/valkdb/valk-guard"><img src="https://goreportcard.com/badge/github.com/valkdb/valk-guard" alt="Go Report Card"></a>
+  <a href="https://pkg.go.dev/github.com/valkdb/valk-guard"><img src="https://pkg.go.dev/badge/github.com/valkdb/valk-guard.svg" alt="Go Reference"></a>
+</p>
 
-**Catch SQL performance and safety issues before they hit production.**
+<p align="center">
+  <img src="docs/media/demo.svg" alt="valk-guard demo" width="820">
+</p>
 
-Valk Guard scans your SQL, Go, and Python code for common database anti-patterns.
-It runs in CI, gives clear feedback, and needs no database connection.
+---
 
-> **PostgreSQL only.** Valk Guard uses a PostgreSQL parser. MySQL, SQLite, and other SQL dialects are not supported.
+## Why Valk Guard?
+
+**Most SQL linters use regex and only see raw `.sql` files. Valk Guard compiles your code and walks the AST.**
+
+It reads Goqu builder chains, SQLAlchemy ORM calls, and Go `db.Query` invocations — not by pattern-matching strings, but by parsing the actual abstract syntax tree. It synthesizes SQL from your ORM code, feeds it through a real PostgreSQL grammar, and runs every rule against it.
+
+That means: if your ORM builds a `DELETE` without a `WHERE`, Valk Guard catches it — even though no raw SQL exists anywhere in your source.
+
+| What it prevents | Example |
+|---|---|
+| Accidental mass updates | `UPDATE users SET active = false` (no WHERE) |
+| Unbounded queries | `SELECT id, email FROM users` (no LIMIT) |
+| Index-killing patterns | `WHERE email LIKE '%@gmail.com'` |
+| Dangerous migrations | `DROP TABLE`, `CREATE INDEX` without `CONCURRENTLY` |
+| Schema drift | ORM model says `email` exists, but migration dropped it |
+| ORM footguns | `session.query(User).delete()` — no raw SQL, still caught |
+
+**Zero config. No database connection. Runs in CI in seconds.**
+
+> **PostgreSQL only.** Valk Guard uses a PostgreSQL parser. MySQL, SQLite, and other dialects are not supported.
 
 ---
 
@@ -24,222 +55,103 @@ go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
 # Scan your project
 valk-guard scan .
 
-# See results as JSON
+# JSON for CI pipelines
 valk-guard scan . --format json
 
-# Emit reviewdog-ready diagnostics
+# Reviewdog PR comments
 valk-guard scan . --format rdjsonl
 
-# Export SARIF for GitHub Code Scanning
+# GitHub Code Scanning (SARIF)
 valk-guard scan . --format sarif --output results.sarif
 ```
 
-That's it. Zero config required — all rules are enabled by default.
-
----
-
-## Documentation Map
-
-- Rule behavior and schema-aware internals: [`docs/schema-drift.md`](docs/schema-drift.md)
-- Suppression patterns (inline, per-rule, exclusions): [`docs/suppression.md`](docs/suppression.md)
-- CI reviewer workflow and non-blocking mode: [`docs/ci-reviewer-mode.md`](docs/ci-reviewer-mode.md)
-- Output contracts (`terminal`, `json`, `rdjsonl`, `sarif`): [`docs/output-formats.md`](docs/output-formats.md)
-
-## End-to-End Example PRs
-
-Live demos in [`ValkDB/valk-guard-example`](https://github.com/ValkDB/valk-guard-example):
-
-- Dist 1 (`VG001`-`VG003`): https://github.com/ValkDB/valk-guard-example/pull/2
-- Dist 2 (`VG004`-`VG006`): https://github.com/ValkDB/valk-guard-example/pull/3
-- Dist 3 (`VG007`, `VG008`, `VG101`-`VG105`): https://github.com/ValkDB/valk-guard-example/pull/4
-- Dist 4 (`VG106`-`VG111`): https://github.com/ValkDB/valk-guard-example/pull/5
-- Suppression showcase (inline + global): https://github.com/ValkDB/valk-guard-example/pull/6
+That's it. All 19 rules are enabled by default.
 
 ---
 
 ## What It Catches
 
-Valk Guard ships with **19 rules** across three categories:
+Valk Guard ships with **19 rules** across three categories. Here are the highlights:
 
-### Query Rules (VG001-VG008)
+| Rule | What it catches | Severity |
+|------|----------------|----------|
+| VG002 | `UPDATE` without `WHERE` — may wipe entire tables | error |
+| VG003 | `DELETE` without `WHERE` — same, but worse | error |
+| VG007 | `DROP TABLE`, `TRUNCATE` in application code | error |
+| VG001 | `SELECT *` — over-fetching columns | warning |
+| VG005 | `LIKE '%...'` — leading wildcard kills indexes | warning |
+| VG008 | `CREATE INDEX` without `CONCURRENTLY` — blocks writes | warning |
+| VG101 | ORM model references a column that migrations dropped | error |
+| VG105 | Query `SELECT`s a column that doesn't exist in schema | error |
 
-Structural checks on every SQL statement, regardless of source.
-
-| Code  | Name                       | What it flags                                      | Severity |
-|-------|----------------------------|----------------------------------------------------|----------|
-| VG001 | select-star                | `SELECT *` projections                             | warning  |
-| VG002 | missing-where-update       | `UPDATE` without `WHERE`                           | error    |
-| VG003 | missing-where-delete       | `DELETE` without `WHERE`                           | error    |
-| VG004 | unbounded-select           | `SELECT` without `LIMIT` (exempts aggregate-only and dual queries) | warning  |
-| VG005 | like-leading-wildcard      | `LIKE`/`ILIKE` with leading `%`                    | warning  |
-| VG006 | select-for-update-no-where | `SELECT ... FOR UPDATE` without `WHERE` (exempts queries with `LIMIT`) | error    |
-| VG007 | destructive-ddl            | `DROP TABLE`, `TRUNCATE`, etc.                     | error    |
-| VG008 | non-concurrent-index       | `CREATE INDEX` without `CONCURRENTLY`              | warning  |
-
-### Schema-Drift Rules (VG101-VG104, VG109-VG111)
-
-Cross-reference your ORM models against migration DDL to catch drift.
-
-| Code  | Name                          | What it flags                                             | Severity |
-|-------|-------------------------------|-----------------------------------------------------------|----------|
-| VG101 | dropped-column                | Model references a column not in migrations               | error    |
-| VG102 | missing-not-null              | NOT NULL column (no default) missing from model           | warning  |
-| VG103 | type-mismatch                 | Column type mismatch between model and DDL                | warning  |
-| VG104 | table-not-found               | Model table has no `CREATE TABLE` in migrations           | error    |
-| VG109 | orphan-migration-table        | Migration table has no matching model                     | warning  |
-| VG110 | duplicate-model-column-mapping| Model maps the same DB column twice                       | warning  |
-| VG111 | go-inferred-table-name-risk   | Go model relies on inferred table name                    | warning  |
-
-### Query-Schema Rules (VG105-VG108)
-
-Validate that columns and tables referenced in queries actually exist in your schema.
-
-| Code  | Name                         | What it flags                                          | Severity |
-|-------|------------------------------|--------------------------------------------------------|----------|
-| VG105 | unknown-projection-column    | `SELECT` references a column not in schema             | error    |
-| VG106 | unknown-filter-column        | `WHERE`/`JOIN`/`GROUP BY`/`ORDER BY` uses unknown column | error  |
-| VG107 | unknown-table-reference      | `FROM`/`JOIN` references a table not in schema         | error    |
-| VG108 | ambiguous-unqualified-column | Unqualified column is ambiguous across joined tables   | warning  |
-
-Full details and examples: [`docs/schema-drift.md`](docs/schema-drift.md)
+**[See all 19 rules](docs/rules.md)** with full descriptions, examples, and severity levels.
 
 ---
 
-## Installation
+## Not Regex — Real AST Analysis
 
-### Download a Binary (easiest)
+Most SQL linters use regex. Valk Guard **compiles and walks the actual AST** of your Go and Python code. It understands ORM builder chains as first-class SQL — no raw strings required.
 
-Grab a pre-built binary from [GitHub Releases](https://github.com/ValkDB/valk-guard/releases) for Linux, macOS, or Windows (amd64/arm64).
+<table>
+<tr>
+<td width="50%">
 
-### Install via Go
+**Go + Goqu** — walks builder chains via `go/ast`
 
-```bash
-go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
-```
+</td>
+<td width="50%">
 
-### Install in CI (Recommended: Pin Version)
+**Python + SQLAlchemy** — parses ORM chains via Python AST
 
-For reproducible CI output and stable downstream processing, pin a release tag (or commit):
+</td>
+</tr>
+<tr>
+<td>
 
-```bash
-go install github.com/valkdb/valk-guard/cmd/valk-guard@vX.Y.Z
-```
+<img src="docs/media/demo-goqu.svg" alt="Goqu AST scanning demo" width="100%">
 
-Why pin in CI:
+</td>
+<td>
 
-- avoids unexpected behavior changes from `@latest`
-- keeps output processing steps (for example jq/reviewdog conversion) stable
-- makes build and review results reproducible across reruns
+<img src="docs/media/demo-sqlalchemy.svg" alt="SQLAlchemy AST scanning demo" width="100%">
 
-### Build From Source
+</td>
+</tr>
+</table>
 
-```bash
-git clone https://github.com/ValkDB/valk-guard.git
-cd valk-guard
-make build
-make install
-```
+No raw SQL in those files. Valk Guard synthesizes SQL from the ORM calls, parses it with a PostgreSQL grammar, and runs all 19 rules against it (a handful of checks use targeted regex on parser-extracted clauses when the AST doesn't expose the needed field, but source scanning is always AST-based).
 
-### Requirements
+| Source | How it works |
+|--------|-------------|
+| **Raw SQL** (`.sql`) | Multi-statement parser with dollar-quoting, nested block comments |
+| **Go** (`go/ast`) | Extracts SQL from `db.Query`, `db.Exec`, `db.QueryRow` and context variants |
+| **Goqu** | Walks builder chains (`From`/`Join`/`Where`/`Limit`/`ForUpdate`) via Go AST |
+| **SQLAlchemy** | Parses ORM chains (`query`/`select`/`join`/`filter`) via Python AST |
 
-- **Go >= 1.25.6** for building from source
-- **Python 3.x** only if you scan SQLAlchemy/Python files. No pip packages needed — Valk Guard ships an embedded Python script that uses only the standard library (`ast`, `json`). If `python3` is not on your `PATH`, Python scanning is skipped silently and non-Python rules still run normally.
-
----
-
-## Supported Sources
-
-Valk Guard understands SQL from multiple origins:
-
-| Source              | What it scans                                                                 |
-|---------------------|-------------------------------------------------------------------------------|
-| **Raw SQL** (`.sql`) | Multi-statement files with comments, dollar-quoting, and nested block comments |
-| **Go** (`go/ast`)    | SQL literals in `db.Query`, `db.Exec`, `db.QueryRow`, and context variants    |
-| **Goqu**             | Builder chains (`From`/`Join`/`Where`/`Limit`/`ForUpdate`) and `goqu.L("...")` |
-| **SQLAlchemy**       | ORM chains (`query`/`select`/`join`/`filter`) and `text("...")`/`.execute("...")` |
-
-For schema-drift rules (VG101+), Valk Guard also extracts **model definitions**:
-- **Go**: reads `db` and `gorm` struct tags; optionally infers field names.
-- **Python**: reads `__tablename__` and `Column(...)` from SQLAlchemy models.
+For schema-drift rules (VG101+), it also reads **ORM model definitions** — Go struct tags (`db`, `gorm`) and Python `__tablename__` / `Column(...)` — and cross-references them against your migration DDL.
 
 ---
 
-## Configuration
+## How It Compares
 
-Create a `.valk-guard.yaml` to customize behavior:
+| | Valk Guard | sqlfluff | squawk | pganalyze |
+|---|---|---|---|---|
+| **No DB connection needed** | Yes | Yes | Yes | No |
+| **Scans Go/Python source** | Yes | No | No | No |
+| **ORM-aware (Goqu, SQLAlchemy)** | Yes | No | No | No |
+| **Schema-drift detection** | Yes | No | No | Yes |
+| **CI-native (SARIF, reviewdog)** | Yes | Partial | Yes | Yes |
+| **Fix/auto-correct** | No | Yes | No | No |
+| **Multi-dialect** | PG only | Yes | PG only | PG only |
+| **PostgreSQL parser** | Yes | Multi-dialect | Yes | Yes |
 
-```yaml
-format: terminal
-
-exclude:
-  - "vendor/**"
-  - "db/migrations/**"
-
-go_model:
-  mapping_mode: strict   # strict | balanced | permissive
-
-rules:
-  VG001:
-    severity: warning
-    engines: [all]       # all | sql | go | goqu | sqlalchemy
-  VG007:
-    enabled: false
-```
-
-Config controls:
-- **`rules.<ID>.enabled`** — turn a rule on or off.
-- **`rules.<ID>.severity`** — override to `error`, `warning`, or `info`.
-- **`rules.<ID>.engines`** — restrict a rule to specific source engines.
-- **`go_model.mapping_mode`** — `strict` (explicit tags only), `balanced` (infer exported fields), or `permissive` (infer all fields).
-- **`exclude`** — glob patterns for files/paths to skip.
-
-Reference example: [`.valk-guard.yaml.example`](.valk-guard.yaml.example)
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| `0`  | No findings |
-| `1`  | Findings reported (any severity) |
-| `2`  | Config, runtime, or parser error |
-
-All findings — including `info` and `warning` — trigger exit code `1`. This lets CI treat any finding as actionable.
-
----
-
-## Inline Suppression
-
-Suppress individual findings with a comment directive on the line before the statement:
-
-```sql
--- valk-guard:disable VG001
-SELECT * FROM users;
-```
-
-```go
-// valk-guard:disable VG001
-db.Query("SELECT * FROM users")
-```
-
-```python
-# valk-guard:disable VG001
-session.execute(text("SELECT * FROM users"))
-```
-
-Disable all rules for the next statement:
-
-```sql
--- valk-guard:disable
-SELECT * FROM orders;
-```
-
-Full suppression guide: [`docs/suppression.md`](docs/suppression.md)
+Valk Guard's niche: **static analysis across SQL + ORM code with schema-drift detection, no infrastructure required.**
 
 ---
 
 ## CI / GitHub Actions
 
-Valk Guard is designed for CI pipelines. Here's a minimal setup:
+Valk Guard is built for CI. Findings post as inline PR review comments via reviewdog:
 
 ```yaml
 permissions:
@@ -254,7 +166,7 @@ jobs:
 
       - name: Run valk-guard
         run: |
-          valk-guard scan "${files[@]}" --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
+          valk-guard scan . --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
           if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
 
       - name: Post review comments
@@ -270,11 +182,101 @@ jobs:
             < valk-guard.rdjsonl
 ```
 
-Findings (exit 1) are non-blocking for review comments. Config/parser failures (exit 2+) fail the job.
+Findings (exit 1) are non-blocking. Config/parser errors (exit 2+) fail the job.
 
-Full CI guide with reviewdog + SARIF upload: [`docs/ci-reviewer-mode.md`](docs/ci-reviewer-mode.md)
+Copy-paste workflows:
+- [Full-repo PR scan](docs/ci-example-full-scan.md)
+- [Changed-files-only PR scan](docs/ci-example-changed-files.md)
+- [Full guide with SARIF + reviewdog + JSON artifacts](docs/ci-reviewer-mode.md)
 
-Output format reference: [`docs/output-formats.md`](docs/output-formats.md)
+---
+
+## Live Demo PRs
+
+See valk-guard reviewing real code in [`ValkDB/valk-guard-example`](https://github.com/ValkDB/valk-guard-example):
+
+- [Query rules (SELECT *, missing WHERE, unbounded queries)](https://github.com/ValkDB/valk-guard-example/pull/2)
+- [Index and locking rules (leading wildcard, FOR UPDATE)](https://github.com/ValkDB/valk-guard-example/pull/3)
+- [Schema-drift and DDL rules](https://github.com/ValkDB/valk-guard-example/pull/4)
+- [Query-schema validation (unknown columns/tables)](https://github.com/ValkDB/valk-guard-example/pull/5)
+- [Suppression showcase (inline + global config)](https://github.com/ValkDB/valk-guard-example/pull/6)
+
+---
+
+## Installation
+
+### Download a Binary (easiest)
+
+Grab a pre-built binary from [GitHub Releases](https://github.com/ValkDB/valk-guard/releases) for Linux, macOS, or Windows (amd64/arm64).
+
+### Install via Go
+
+```bash
+go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
+```
+
+### Pin in CI (recommended)
+
+```bash
+go install github.com/valkdb/valk-guard/cmd/valk-guard@vX.Y.Z
+```
+
+Why pin: avoids surprise behavior changes, keeps output processing stable, makes builds reproducible.
+
+### Build From Source
+
+```bash
+git clone https://github.com/ValkDB/valk-guard.git
+cd valk-guard
+make build
+make install
+```
+
+### Requirements
+
+- **Go >= 1.25.6** for building from source
+- **Python 3.x** only for SQLAlchemy scanning. No pip packages needed — Valk Guard ships an embedded script using only stdlib (`ast`, `json`). If `python3` is not on your `PATH`, scanning `.py` files will fail with an error. Non-Python rules still run normally on `.sql` and `.go` files.
+
+---
+
+## Configuration
+
+Zero config works out of the box. To customize, create a `.valk-guard.yaml`:
+
+```yaml
+exclude:
+  - "vendor/**"
+  - "db/migrations/**"
+
+rules:
+  VG001:
+    severity: warning
+    engines: [all]       # all | sql | go | goqu | sqlalchemy
+  VG007:
+    enabled: false
+
+go_model:
+  mapping_mode: strict   # strict | balanced | permissive
+```
+
+Reference: [`.valk-guard.yaml.example`](.valk-guard.yaml.example)
+
+### Inline Suppression
+
+```sql
+-- valk-guard:disable VG001
+SELECT * FROM users;
+```
+
+Works in Go (`//`) and Python (`#`) too. Full guide: [`docs/suppression.md`](docs/suppression.md)
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0`  | No findings |
+| `1`  | Findings reported (any severity) |
+| `2`  | Config, runtime, or parser error |
 
 ---
 
@@ -316,6 +318,7 @@ flowchart LR
     E1["terminal"]
     E2["json"]
     E3["sarif"]
+    E4["rdjsonl"]
   end
 
   A1 --> B1 --> B5
@@ -346,6 +349,30 @@ flowchart LR
 
 ---
 
+## Roadmap
+
+Track progress and vote on what matters to you:
+
+- GORM scanner — AST-based scanning for GORM builder chains and model extraction
+- Deeper builder semantics — aliases, nested subqueries, richer predicate trees
+- SQLAlchemy 2.0 `mapped_column()` support — modern model extraction
+- Custom rule authoring — define your own rules in YAML or Go
+- Severity-gated CI — block PRs only on errors, not warnings
+
+---
+
+## Documentation
+
+- [All 19 rules — full reference](docs/rules.md)
+- [Schema-drift detection](docs/schema-drift.md)
+- [Suppression and noise control](docs/suppression.md)
+- [Output formats (terminal, JSON, rdjsonl, SARIF)](docs/output-formats.md)
+- [CI reviewer mode](docs/ci-reviewer-mode.md)
+- [Adding new rules](docs/adding-rules.md)
+- [Adding new scanners/sources](docs/adding-sources.md)
+
+---
+
 ## Development
 
 ```bash
@@ -356,26 +383,10 @@ make cover      # coverage report
 make check      # fmt + vet + lint + test
 ```
 
-```bash
-make run
-# or
-./valk-guard scan .
-```
-
----
-
-## Roadmap
-
-- Deeper builder semantics (aliases, nested subqueries, richer predicate trees).
-- Lock/index heuristics and additional schema-aware checks.
-- SQLAlchemy 2.0 `mapped_column()` support for model extraction.
-- Expanded custom rule authoring workflows.
-- Stronger PR regression-gating modes (changed-files-only policies, severity gates).
-
 ---
 
 ## Contributing / Security / License
 
 - Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
-- Security: [`SECURITY.md`](SECURITY.md)
+- Security: [`SECURITY.md`](SECURITY.md) | [Report a vulnerability](https://github.com/ValkDB/valk-guard/security/advisories/new)
 - License: [Apache 2.0](LICENSE)

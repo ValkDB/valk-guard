@@ -31,7 +31,7 @@ func TestReviewdogSeverity(t *testing.T) {
 
 func TestReviewdogMessage(t *testing.T) {
 	t.Run("synthetic SQL strips prefix and adds origin", func(t *testing.T) {
-		msg := reviewdogMessage(rules.Finding{
+		msg := reviewdogMessage(&rules.Finding{
 			RuleID:  "VG004",
 			Message: "SELECT without LIMIT may return unbounded rows; add LIMIT or FETCH FIRST",
 			SQL:     `/* valk-guard:synthetic sqlalchemy-ast */ SELECT "User"."id", "User"."email" FROM "User" WHERE "User"."active" = TRUE`,
@@ -46,7 +46,7 @@ func TestReviewdogMessage(t *testing.T) {
 	})
 
 	t.Run("raw SQL keeps compact preview only", func(t *testing.T) {
-		msg := reviewdogMessage(rules.Finding{
+		msg := reviewdogMessage(&rules.Finding{
 			RuleID:  "VG004",
 			Message: "SELECT without LIMIT may return unbounded rows; add LIMIT or FETCH FIRST",
 			SQL:     "WITH active_users AS (\n  SELECT id FROM users\n)\nSELECT id FROM active_users",
@@ -63,7 +63,7 @@ func TestReviewdogMessage(t *testing.T) {
 
 func TestBuildRDJSONLDiagnostic(t *testing.T) {
 	t.Run("single-line fallback range", func(t *testing.T) {
-		diag := buildRDJSONLDiagnostic(rules.Finding{
+		diag := buildRDJSONLDiagnostic(&rules.Finding{
 			RuleID:   "VG001",
 			Severity: rules.SeverityWarning,
 			Message:  "avoid SELECT *",
@@ -91,7 +91,7 @@ func TestBuildRDJSONLDiagnostic(t *testing.T) {
 	})
 
 	t.Run("multiline finding range is preserved", func(t *testing.T) {
-		diag := buildRDJSONLDiagnostic(rules.Finding{
+		diag := buildRDJSONLDiagnostic(&rules.Finding{
 			RuleID:    "VG106",
 			Severity:  rules.SeverityError,
 			Message:   "unknown filter column",

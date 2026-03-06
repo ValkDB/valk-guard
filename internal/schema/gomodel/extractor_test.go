@@ -335,7 +335,7 @@ func TestExtractModels_BalancedInferenceUsesExportedFields(t *testing.T) {
 	writeGoFile(t, dir, "models.go", `package models
 
 type Session struct {
-	ID        int
+	ID        int    `+"`db:\"id\"`"+`
 	CreatedAt string
 	token     string
 }
@@ -356,10 +356,11 @@ type Session struct {
 	if got[0].Columns[0].Name != "id" || got[0].Columns[1].Name != "created_at" {
 		t.Fatalf("unexpected inferred columns: %+v", got[0].Columns)
 	}
-	for _, col := range got[0].Columns {
-		if col.MappingKind != schema.MappingKindInferred || col.MappingSource != "field_name" {
-			t.Fatalf("unexpected mapping metadata for %q: kind=%q source=%q", col.Name, col.MappingKind, col.MappingSource)
-		}
+	if col := got[0].Columns[0]; col.MappingKind != schema.MappingKindExplicit || col.MappingSource != "db_tag" {
+		t.Fatalf("unexpected mapping metadata for %q: kind=%q source=%q", col.Name, col.MappingKind, col.MappingSource)
+	}
+	if col := got[0].Columns[1]; col.MappingKind != schema.MappingKindInferred || col.MappingSource != "field_name" {
+		t.Fatalf("unexpected mapping metadata for %q: kind=%q source=%q", col.Name, col.MappingKind, col.MappingSource)
 	}
 }
 
@@ -370,7 +371,7 @@ func TestExtractModels_PermissiveInferenceIncludesUnexportedFields(t *testing.T)
 	writeGoFile(t, dir, "models.go", `package models
 
 type Session struct {
-	ID    int
+	ID    int    `+"`db:\"id\"`"+`
 	token string
 }
 `)
