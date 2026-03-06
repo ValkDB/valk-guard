@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // MissingWhereUpdateRule detects UPDATE statements without a WHERE clause.
 type MissingWhereUpdateRule struct{}

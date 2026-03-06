@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // MissingWhereDeleteRule detects DELETE statements without a WHERE clause.
 type MissingWhereDeleteRule struct{}
