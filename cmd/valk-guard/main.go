@@ -18,8 +18,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/valkdb/valk-guard/internal/config"
+	"github.com/valkdb/valk-guard/internal/engine"
 	"github.com/valkdb/valk-guard/internal/output"
-	"github.com/valkdb/valk-guard/internal/rules"
 )
 
 const (
@@ -174,17 +174,14 @@ func runScan(opts scanOptions, args []string, stdout, stderr io.Writer) (int, er
 		return exitError, err
 	}
 
-	reg := rules.DefaultRegistry()
-	warnUnknownConfiguredRules(cfg, reg, logger)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	findings, hadScannableInputs, err := collectAndAnalyze(ctx, args, cfg, reg, logger)
+	result, err := engine.Run(ctx, args, cfg, logger)
 	if err != nil {
 		return exitError, err
 	}
-	if !hadScannableInputs {
+	if !result.HadScannableInputs {
 		logger.Warn("no .sql, .go, or .py files found in scan paths")
 	}
 
@@ -204,13 +201,13 @@ func runScan(opts scanOptions, args []string, stdout, stderr io.Writer) (int, er
 		}()
 	}
 
-	if err := reporter.Report(ctx, out, findings); err != nil {
+	if err := reporter.Report(ctx, out, result.Findings); err != nil {
 		return exitError, err
 	}
 
 	// Print "no scannable files" hint after the report for terminal output
 	// so it appears below the "0 findings" line.
-	if !hadScannableInputs && format == config.FormatTerminal && len(findings) == 0 {
+	if !result.HadScannableInputs && format == config.FormatTerminal && len(result.Findings) == 0 {
 		_, _ = fmt.Fprintln(out, "(no scannable files found)")
 	}
 
@@ -225,7 +222,7 @@ func runScan(opts scanOptions, args []string, stdout, stderr io.Writer) (int, er
 		}
 	}
 
-	if len(findings) > 0 {
+	if len(result.Findings) > 0 {
 		return exitFindings, nil
 	}
 	return exitSuccess, nil

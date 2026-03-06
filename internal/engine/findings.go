@@ -1,7 +1,7 @@
 // Copyright 2025 ValkDB
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package engine
 
 import (
 	"cmp"
@@ -78,6 +78,7 @@ type queryFindingKeyValue struct {
 	SQL       string
 }
 
+// queryFindingKey builds a stable deduplication key for query-schema findings.
 func queryFindingKey(f *rules.Finding) queryFindingKeyValue {
 	return queryFindingKeyValue{
 		RuleID:    f.RuleID,
@@ -89,18 +90,4 @@ func queryFindingKey(f *rules.Finding) queryFindingKeyValue {
 		Message:   f.Message,
 		SQL:       f.SQL,
 	}
-}
-
-// isMigrationSQLFile reports whether path looks like a migration SQL file.
-func isMigrationSQLFile(path string) bool {
-	normalized := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
-	if !strings.HasSuffix(normalized, ".sql") {
-		return false
-	}
-	// Check for migration directory segments without allocating via Split.
-	// Prepend "/" so that a leading segment like "migrations/..." is also matched.
-	p := "/" + normalized
-	return strings.Contains(p, "/migrations/") ||
-		strings.Contains(p, "/migration/") ||
-		strings.Contains(p, "/migrate/")
 }

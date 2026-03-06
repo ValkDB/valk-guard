@@ -16,16 +16,16 @@ End-to-end schema-aware demos in `valk-guard-example`:
 
 Schema-aware detection runs as a post-scan phase:
 
-1. **DDL accumulation**: SQL statements from migration-like paths (`migrations/`, `migration/`, `migrate/`) are parsed by `postgresparser` when present. If none are found, all scanned `.sql` files are used as a fallback. DDL actions (`CREATE TABLE`, `DROP TABLE`, `DROP COLUMN`, `ALTER TABLE ADD COLUMN`) are accumulated into a schema snapshot.
+1. **DDL accumulation**: SQL statements from `migration_paths` are parsed by `postgresparser` when configured. If `migration_paths` is omitted, Valk Guard falls back to built-in defaults (`migrations/`, `migration/`, `migrate/`). If no migration-path matches are found at all, all scanned `.sql` files are used as a fallback. DDL actions (`CREATE TABLE`, `DROP TABLE`, `DROP COLUMN`, `ALTER TABLE ADD COLUMN`) are accumulated into a schema snapshot.
 2. **Query-schema checks**: Parsed statements are validated for unknown/ambiguous table and column usage (`VG105`-`VG108`) against:
    - migration schema snapshot (always, when migration SQL exists)
    - model-derived schema for matching engines when present (`go/goqu` -> Go model extractor, `sqlalchemy` -> SQLAlchemy models)
 3. **Model extraction**: Go structs and Python SQLAlchemy classes are extracted into generic `schema.ModelDef`.
 4. **Model cross-reference**: Model schema rules (`VG101`-`VG104`, `VG109`-`VG111`) compare model metadata against migration schema.
 
-    If a statement cannot be parsed, Valk Guard logs a warning and skips only that statement. Warning logs include remediation guidance to exclude the file path in `.valk-guard.yaml`.
+If a statement cannot be parsed, Valk Guard logs a warning and skips only that statement. Warning logs include remediation guidance to exclude the file path in `.valk-guard.yaml`.
 
-Source-to-engine mapping is controlled in `cmd/valk-guard/source_bindings.go`:
+Source-to-engine mapping is controlled in `internal/engine/source_bindings.go`:
 
 - `configEngines` map model sources to rule-engine filters for model schema rules.
 - `queryEngines` map statement engines to model snapshots for query-schema rules.
@@ -175,6 +175,10 @@ rules:
   VG108:
     severity: warning
     engines: [sql, go, goqu, sqlalchemy]
+
+migration_paths:
+  - db/migrations
+  - schema/**/*.sql
 ```
 
 Schema rules honor `engines` filtering by source:

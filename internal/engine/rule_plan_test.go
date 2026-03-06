@@ -1,7 +1,7 @@
 // Copyright 2025 ValkDB
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package engine
 
 import (
 	"testing"
