@@ -156,6 +156,114 @@ func foo() {
 	}
 }
 
+func TestGoquScannerAliasedImport(t *testing.T) {
+	src := `package example
+
+import db "github.com/doug-martin/goqu/v9"
+
+func queries() {
+	db.From("users").Select("id", "email").Where(db.C("active").Eq(true)).Limit(10)
+}
+`
+
+	tmpDir := t.TempDir()
+	goFile := filepath.Join(tmpDir, "aliased.go")
+	if err := os.WriteFile(goFile, []byte(src), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	if len(stmts) == 0 {
+		t.Fatal("expected statements from aliased goqu import, got 0")
+	}
+	if !scannertest.HasSQLContaining(stmts, "/* valk-guard:synthetic goqu-ast */") {
+		t.Fatalf("expected synthetic SQL from aliased import, got %+v", stmts)
+	}
+}
+
+func TestGoquScannerMultiJoinChain(t *testing.T) {
+	src := `package example
+
+import goqu "github.com/doug-martin/goqu/v9"
+
+func queries() {
+	goqu.From("users").
+		Join(goqu.T("orders"), goqu.On(goqu.Ex{"users.id": goqu.I("orders.uid")})).
+		Join(goqu.T("items"), goqu.On(goqu.Ex{"orders.id": goqu.I("items.oid")})).
+		Select("users.id", "orders.total", "items.name").
+		Where(goqu.C("users.active").Eq(true)).
+		Limit(100)
+}
+`
+
+	tmpDir := t.TempDir()
+	goFile := filepath.Join(tmpDir, "multi_join.go")
+	if err := os.WriteFile(goFile, []byte(src), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	if len(stmts) == 0 {
+		t.Fatal("expected statements from multi-join chain, got 0")
+	}
+
+	if !scannertest.HasSQLContaining(stmts, "JOIN orders ON 1=1") {
+		t.Fatalf("expected first JOIN in synthetic SQL, got %+v", stmts)
+	}
+	if !scannertest.HasSQLContaining(stmts, "JOIN items ON 1=1") {
+		t.Fatalf("expected second JOIN in synthetic SQL, got %+v", stmts)
+	}
+}
+
+func TestGoquScannerNonGoFileIgnored(t *testing.T) {
+	tmpDir := t.TempDir()
+	txtFile := filepath.Join(tmpDir, "queries.txt")
+	if err := os.WriteFile(txtFile, []byte(`goqu.From("users").Select("*")`), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+	if len(stmts) != 0 {
+		t.Fatalf("expected 0 statements for non-.go files, got %d", len(stmts))
+	}
+}
+
+func TestGoquScannerParseErrorIsFatal(t *testing.T) {
+	src := `package example
+// this file has a syntax error
+func queries( {
+`
+
+	tmpDir := t.TempDir()
+	goFile := filepath.Join(tmpDir, "broken.go")
+	if err := os.WriteFile(goFile, []byte(src), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	_, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err == nil {
+		t.Fatal("expected error for broken Go file")
+	}
+	if !strings.Contains(err.Error(), "parsing go file") {
+		t.Fatalf("expected parse error, got: %v", err)
+	}
+}
+
 func TestGoquScannerEmptyDir(t *testing.T) {
 	tmpDir := t.TempDir()
 

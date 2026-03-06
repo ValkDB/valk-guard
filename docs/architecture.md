@@ -69,7 +69,7 @@ Valk Guard ships with 19 production-first rules. See [docs/rules.md](rules.md) f
 | **VG001** | `select-star` | Warning | Usage of `SELECT *` instead of specific columns. |
 | **VG002** | `missing-where-update` | Error | `UPDATE` statements without a `WHERE` clause. |
 | **VG003** | `missing-where-delete` | Error | `DELETE` statements without a `WHERE` clause. |
-| **VG004** | `unbounded-select` | Warning | `SELECT` without `LIMIT` (exempts aggregate/dual queries). |
+| **VG004** | `unbounded-select` | Warning | `SELECT` without `LIMIT` (exempts aggregate-only and dual queries). |
 | **VG005** | `like-leading-wildcard` | Warning | `LIKE '%...'` patterns that prevent index usage. |
 | **VG006** | `select-for-update-no-where` | Error | Locking entire tables with `FOR UPDATE` (exempts `LIMIT`). |
 | **VG007** | `destructive-ddl` | Error | `DROP` or `TRUNCATE` commands in application code. |

@@ -21,5 +21,8 @@ type SchemaRule interface {
 // matchTable resolves a model table name to a schema table using exact
 // case-insensitive matching only.
 func matchTable(snap *schema.Snapshot, modelTable string) *schema.TableDef {
+	if snap == nil {
+		return nil
+	}
 	return snap.Lookup(strings.ToLower(modelTable))
 }

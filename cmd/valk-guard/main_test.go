@@ -899,3 +899,78 @@ func TestIsMigrationSQLFile(t *testing.T) {
 		}
 	}
 }
+
+func TestRunScanSchemaDriftEndToEnd(t *testing.T) {
+	tmpDir := t.TempDir()
+	migDir := filepath.Join(tmpDir, "db", "migrations")
+	if err := os.MkdirAll(migDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Migration defines users(id, email, active) and orders(id, user_id, total)
+	migration := strings.Join([]string{
+		"CREATE TABLE users (id INTEGER NOT NULL, email TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE);",
+		"CREATE TABLE orders (id INTEGER NOT NULL, user_id INTEGER NOT NULL, total NUMERIC(10,2));",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(migDir, "001.sql"), []byte(migration), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Go model matches users but references a column that doesn't exist (phone)
+	goModel := strings.Join([]string{
+		"package models",
+		"",
+		"type User struct {",
+		`	ID    int    ` + "`" + `db:"id"` + "`",
+		`	Email string ` + "`" + `db:"email"` + "`",
+		`	Phone string ` + "`" + `db:"phone"` + "`",
+		"}",
+		"",
+		"func (User) TableName() string { return \"users\" }",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(tmpDir, "models.go"), []byte(goModel), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Query references valid table + columns
+	query := "SELECT id, email FROM users WHERE active = true LIMIT 10;"
+	if err := os.WriteFile(filepath.Join(tmpDir, "queries.sql"), []byte(query), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Config: enable only schema-drift and query-schema rules
+	cfg := strings.Join([]string{
+		"rules:",
+		"  VG001: { enabled: false }",
+		"  VG002: { enabled: false }",
+		"  VG003: { enabled: false }",
+		"  VG004: { enabled: false }",
+		"  VG005: { enabled: false }",
+		"  VG006: { enabled: false }",
+		"  VG007: { enabled: false }",
+		"  VG008: { enabled: false }",
+		"migration_paths:",
+		"  - db/migrations",
+	}, "\n")
+	cfgPath := filepath.Join(tmpDir, ".valk-guard.yaml")
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"scan", tmpDir, "--format", "json", "--config", cfgPath}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Fatalf("expected findings (exit code 1), got 0; stderr=%q", stderr.String())
+	}
+
+	output := stdout.String()
+	// VG101: model column 'phone' not in migration schema
+	if !strings.Contains(output, "VG101") {
+		t.Errorf("expected VG101 finding for phantom column 'phone', got:\n%s", output)
+	}
+	// VG109: orders table has no matching Go model
+	if !strings.Contains(output, "VG109") {
+		t.Errorf("expected VG109 finding for orphan migration table 'orders', got:\n%s", output)
+	}
+}
