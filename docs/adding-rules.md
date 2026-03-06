@@ -10,9 +10,10 @@ Each rule implements the `Rule` interface in `internal/rules/rule.go`:
 - `Name() string`: machine-friendly name
 - `Description() string`: human-friendly summary
 - `DefaultSeverity() Severity`: `error`, `warning`, or `info`
-- `Check(...) []Finding`: rule logic
+- `Check(ctx, ...) []Finding`: rule logic
 
 Rules run on parsed SQL (`postgresparser.ParsedQuery`) and return zero or more findings.
+The `context.Context` is passed through for cancellation/timeouts; most rules can ignore it today.
 
 Optional optimization interface:
 
@@ -29,6 +30,8 @@ Add a new file under `internal/rules/`, for example:
 Implement a struct with methods matching `Rule`.
 
 ```go
+import "context"
+
 type NoSelectDistinctRule struct{}
 
 func (r *NoSelectDistinctRule) ID() string          { return "VG009" }
@@ -39,7 +42,7 @@ func (r *NoSelectDistinctRule) CommandTargets() []postgresparser.QueryCommand {
     return []postgresparser.QueryCommand{postgresparser.QueryCommandSelect}
 }
 
-func (r *NoSelectDistinctRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+func (r *NoSelectDistinctRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
     // rule logic here
     return nil
 }
@@ -103,7 +106,7 @@ type SchemaRule interface {
     Name() string
     Description() string
     DefaultSeverity() Severity
-    CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding
+    CheckSchema(ctx context.Context, snap *schema.Snapshot, models []schema.ModelDef) []Finding
 }
 ```
 
@@ -134,7 +137,7 @@ type QuerySchemaRule interface {
     Name() string
     Description() string
     DefaultSeverity() Severity
-    CheckQuerySchema(snap *schema.Snapshot, stmt scanner.SQLStatement, parsed *postgresparser.ParsedQuery) []Finding
+    CheckQuerySchema(ctx context.Context, snap *schema.Snapshot, stmt *scanner.SQLStatement, parsed *postgresparser.ParsedQuery) []Finding
 }
 ```
 

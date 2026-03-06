@@ -4,6 +4,8 @@
 package rules
 
 import (
+	"context"
+
 	"github.com/valkdb/postgresparser"
 	"github.com/valkdb/valk-guard/internal/scanner"
 	"github.com/valkdb/valk-guard/internal/schema"
@@ -17,5 +19,5 @@ type QuerySchemaRule interface {
 	DefaultSeverity() Severity
 	// CheckQuerySchema validates a parsed query statement's column usage
 	// against the given schema snapshot and returns any findings.
-	CheckQuerySchema(snap *schema.Snapshot, stmt *scanner.SQLStatement, parsed *postgresparser.ParsedQuery) []Finding
+	CheckQuerySchema(ctx context.Context, snap *schema.Snapshot, stmt *scanner.SQLStatement, parsed *postgresparser.ParsedQuery) []Finding
 }

@@ -241,7 +241,7 @@ make install
 ### Requirements
 
 - **Go >= 1.25.6** for building from source
-- **Python 3.x** only for SQLAlchemy scanning. No pip packages needed — Valk Guard ships an embedded script using only stdlib (`ast`, `json`). If `python3` is not on your `PATH`, scanning `.py` files will fail with an error. Non-Python rules still run normally on `.sql` and `.go` files.
+- **Python >= 3.6** only when scanning `.py` files for SQLAlchemy usage. No pip packages needed — Valk Guard ships an embedded script using only stdlib (`ast`, `json`). If scanned `.py` files are present and `python3` is missing or too old, the scan fails fast with an error.
 
 ---
 
@@ -252,7 +252,14 @@ Zero config works out of the box. To customize, create a `.valk-guard.yaml`:
 ```yaml
 exclude:
   - "vendor/**"
-  - "db/migrations/**"
+  - "generated/**"
+
+# Optional: override which SQL files build the schema snapshot.
+# If omitted, Valk Guard uses these defaults:
+#   migrations/, migration/, migrate/
+migration_paths:
+  - "db/migrations"
+  - "schema/**/*.sql"
 
 rules:
   VG001:

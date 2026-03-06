@@ -11,10 +11,10 @@ A source integration can include:
 
 Runtime wiring is registry-based:
 
-- scanner bindings: `defaultScannerBindings()` in `cmd/valk-guard/source_bindings.go`
-- model bindings: `defaultModelBindings(cfg)` in `cmd/valk-guard/source_bindings.go`
+- scanner bindings: `defaultScannerBindings()` in `internal/engine/source_bindings.go`
+- model bindings: `defaultModelBindings(cfg)` in `internal/engine/source_bindings.go`
 
-`collectAndAnalyze()` consumes those bindings, so adding a source does not require new hardcoded switches in `main.go`.
+`internal/engine.Run()` consumes those bindings, so adding a source does not require new hardcoded switches in the CLI.
 
 ## Core Contracts
 

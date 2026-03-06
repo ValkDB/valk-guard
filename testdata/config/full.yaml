@@ -4,6 +4,10 @@ exclude:
   - "vendor/*"
   - "*.gen.sql"
 
+migration_paths:
+  - "db/migrations"
+  - "schema/**/*.sql"
+
 rules:
   VG001:
     enabled: true
