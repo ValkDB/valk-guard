@@ -151,7 +151,7 @@ Valk Guard's niche: **static analysis across SQL + ORM code with schema-drift de
 
 ## CI / GitHub Actions
 
-Valk Guard is built for CI. Findings post as inline PR review comments via reviewdog:
+Valk Guard is built for CI. This is the minimal full-repo reviewer step; use the copy-paste workflows below for complete jobs:
 
 ```yaml
 permissions:
@@ -166,8 +166,14 @@ jobs:
 
       - name: Run valk-guard
         run: |
-          valk-guard scan . --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
-          if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
+          set +e
+          valk-guard scan . --config .valk-guard.yaml --format rdjsonl > valk-guard.rdjsonl
+          code=$?
+          set -e
+
+          if [ "$code" -gt 1 ]; then
+            exit "$code"
+          fi
 
       - name: Post review comments
         env:
