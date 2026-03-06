@@ -2,6 +2,8 @@
 
 SELECT * FROM users;
 
+SELECT * FROM orders;
+
 UPDATE users SET active = false;
 
 DELETE FROM sessions;

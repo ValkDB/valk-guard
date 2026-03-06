@@ -39,7 +39,7 @@ def _build_tablename_map(tree):
     return mapping
 
 
-def extract_sql_from_file(filepath):
+def extract_sql_from_file(filepath, project_tablename_map=None):
     """Parse a Python file and extract raw and synthetic SQL strings."""
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
         source = f.read()
@@ -52,11 +52,23 @@ def extract_sql_from_file(filepath):
     parents = _build_parent_map(tree)
 
     _extract_raw_execute_text(tree, filepath, handled_text_ids, seen, results)
-    tablename_map = _build_tablename_map(tree)
+    tablename_map = dict(project_tablename_map or {})
+    tablename_map.update(_build_tablename_map(tree))
     _extract_synthetic_chain_sql(tree, parents, filepath, seen, results, tablename_map)
 
     results.sort(key=lambda r: (r["line"], r.get("column", 1), r["sql"]))
     return results
+
+
+def build_project_tablename_map(filepaths):
+    """Build a best-effort __tablename__ map across all candidate Python files."""
+    mapping = {}
+    for filepath in filepaths:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            source = f.read()
+        tree = ast.parse(source, filename=filepath)
+        mapping.update(_build_tablename_map(tree))
+    return mapping
 
 
 def _extract_raw_execute_text(tree, filepath, handled_text_ids, seen, results):
@@ -668,9 +680,18 @@ def main():
         return
 
     all_results = []
+    try:
+        project_tablename_map = build_project_tablename_map(sys.argv[1:])
+    except OSError as exc:
+        print(f"reading python file while building project tablename map: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except SyntaxError as exc:
+        print(f"parsing python file while building project tablename map: {exc}", file=sys.stderr)
+        sys.exit(2)
+
     for filepath in sys.argv[1:]:
         try:
-            all_results.extend(extract_sql_from_file(filepath))
+            all_results.extend(extract_sql_from_file(filepath, project_tablename_map))
         except OSError as exc:
             print(f"reading python file {filepath}: {exc}", file=sys.stderr)
             sys.exit(2)

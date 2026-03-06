@@ -63,6 +63,13 @@ var goquBuilderMethods = map[string]struct{}{
 	"WithRecursive": {},
 }
 
+// goquChainTerminalMethods are non-builder methods that still terminate a
+// goqu query chain and should suppress synthesis from the immediately nested
+// builder call.
+var goquChainTerminalMethods = map[string]struct{}{
+	"ToSQL": {},
+}
+
 const syntheticPrefix = "/* valk-guard:synthetic goqu-ast */ "
 
 // Scanner extracts SQL from goqu usage in Go source files. For raw SQL,
@@ -700,8 +707,9 @@ func buildParentMap(root ast.Node) map[ast.Node]ast.Node {
 
 // isChainedSubCall reports whether call is an intermediate node in a goqu
 // builder method chain rather than the terminal call. A call is considered
-// a sub-call when its parent selector's method name is a known goqu builder
-// method and that selector is the function of a grandparent call expression.
+// a sub-call when its parent selector's method name is another goqu chain
+// method (builder or terminal sink such as ToSQL) and that selector is the
+// function of a grandparent call expression.
 func isChainedSubCall(call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {
 	parent, ok := parents[call]
 	if !ok {
@@ -719,8 +727,11 @@ func isChainedSubCall(call *ast.CallExpr, parents map[ast.Node]ast.Node) bool {
 	if !ok || grandCall.Fun != sel {
 		return false
 	}
-	// If the next call in the chain is a known builder method,
+	// If the next call in the chain is another recognized goqu chain method,
 	// then the current call is just a sub-component of a larger chain.
-	_, ok = goquBuilderMethods[sel.Sel.Name]
+	if _, ok = goquBuilderMethods[sel.Sel.Name]; ok {
+		return true
+	}
+	_, ok = goquChainTerminalMethods[sel.Sel.Name]
 	return ok
 }

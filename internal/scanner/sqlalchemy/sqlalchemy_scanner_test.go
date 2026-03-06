@@ -240,6 +240,66 @@ func TestSQLAlchemyScannerExtractsSyntheticSQLWithoutDirectSQLAlchemyImport(t *t
 	}
 }
 
+func TestSQLAlchemyScannerResolvesImportedModelTablenames(t *testing.T) {
+	tmpDir := t.TempDir()
+	modelsFile := filepath.Join(tmpDir, "models.py")
+	serviceFile := filepath.Join(tmpDir, "service.py")
+
+	models := `from sqlalchemy import Boolean, Integer, String
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255))
+    active: Mapped[bool] = mapped_column(Boolean)
+
+class Order(Base):
+    __tablename__ = "orders"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(50))
+`
+	service := `from sqlalchemy.orm import Session
+from models import Order, User
+
+def run(session: Session):
+    return (
+        session.query(User.id, User.email, Order.status)
+        .outerjoin(Order, Order.user_id == User.id)
+        .filter(User.active.is_(True))
+        .limit(25)
+        .all()
+    )
+`
+
+	if err := os.WriteFile(modelsFile, []byte(models), 0644); err != nil {
+		t.Fatalf("failed to write models file: %v", err)
+	}
+	if err := os.WriteFile(serviceFile, []byte(service), 0644); err != nil {
+		t.Fatalf("failed to write service file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	if len(stmts) == 0 {
+		t.Fatal("expected synthetic SQL from imported SQLAlchemy models, got 0 statements")
+	}
+	if !scannertest.HasSQLContaining(stmts, `FROM "users" LEFT JOIN "orders" ON 1=1`) {
+		t.Fatalf("expected imported __tablename__ values in JOIN SQL, got %+v", stmts)
+	}
+	if !scannertest.HasSQLContaining(stmts, `"orders"."status"`) {
+		t.Fatalf("expected imported __tablename__ values in projection SQL, got %+v", stmts)
+	}
+}
+
 func TestSQLAlchemyScannerErrorsOnSyntaxError(t *testing.T) {
 	tmpDir := t.TempDir()
 	pyFile := filepath.Join(tmpDir, "broken.py")

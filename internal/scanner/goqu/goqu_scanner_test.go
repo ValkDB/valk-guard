@@ -225,6 +225,41 @@ func queries() {
 	}
 }
 
+func TestGoquScannerToSQLChainEmittedOnce(t *testing.T) {
+	src := `package example
+
+import goqu "github.com/doug-martin/goqu/v9"
+
+func queries() {
+	_, _, _ = goqu.From("users").
+		LeftJoin(goqu.T("orders"), goqu.On(goqu.Ex{"orders.user_id": goqu.I("users.id")})).
+		Select("users.id", "orders.status").
+		Where(goqu.Ex{"users.active": true}).
+		Limit(10).
+		ToSQL()
+}
+`
+
+	tmpDir := t.TempDir()
+	goFile := filepath.Join(tmpDir, "to_sql.go")
+	if err := os.WriteFile(goFile, []byte(src), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{goFile}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	if len(stmts) != 1 {
+		t.Fatalf("expected 1 synthetic statement for ToSQL() chain, got %d: %+v", len(stmts), stmts)
+	}
+	if !scannertest.HasSQLContaining(stmts, "LEFT JOIN orders ON 1=1") {
+		t.Fatalf("expected LEFT JOIN in synthetic SQL, got %+v", stmts)
+	}
+}
+
 func TestGoquScannerNonGoFileIgnored(t *testing.T) {
 	tmpDir := t.TempDir()
 	txtFile := filepath.Join(tmpDir, "queries.txt")
