@@ -29,7 +29,7 @@ func (r *OrphanMigrationTableRule) Description() string {
 func (r *OrphanMigrationTableRule) DefaultSeverity() Severity { return SeverityWarning }
 
 // CheckSchema compares migration tables against extracted model mappings.
-func (r *OrphanMigrationTableRule) CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding {
+func (r *OrphanMigrationTableRule) CheckSchema(_ context.Context, snap *schema.Snapshot, models []schema.ModelDef) []Finding {
 	if len(snap.Tables) == 0 || len(models) == 0 {
 		return nil
 	}

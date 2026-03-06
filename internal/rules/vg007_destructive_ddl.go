@@ -28,7 +28,7 @@ func (r *DestructiveDDLRule) CommandTargets() []postgresparser.QueryCommand {
 }
 
 // Check reports findings for destructive DDL actions.
-func (r *DestructiveDDLRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+func (r *DestructiveDDLRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandDDL {
 		return nil
 	}

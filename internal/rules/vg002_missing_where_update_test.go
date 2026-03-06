@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestMissingWhereUpdateRule validates UPDATE without WHERE detection.
 func TestMissingWhereUpdateRule(t *testing.T) {
@@ -25,8 +28,23 @@ func TestMissingWhereUpdateRule(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name:      "update with constant true where",
+			sql:       "UPDATE users SET active = false WHERE 1 = 1",
+			wantCount: 1,
+		},
+		{
+			name:      "update with true literal where",
+			sql:       "UPDATE users SET active = false WHERE (TRUE)",
+			wantCount: 1,
+		},
+		{
 			name:      "update with subquery where",
 			sql:       "UPDATE users SET active = false WHERE id IN (SELECT id FROM inactive)",
+			wantCount: 0,
+		},
+		{
+			name:      "update with placeholder plus predicate",
+			sql:       "UPDATE users SET active = false WHERE 1 = 1 AND id = 1",
 			wantCount: 0,
 		},
 		{
@@ -40,10 +58,10 @@ func TestMissingWhereUpdateRule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var findings []Finding
 			if tt.name == "nil parsed query" {
-				findings = rule.Check(nil, "query.sql", 20, tt.sql)
+				findings = rule.Check(context.Background(), nil, "query.sql", 20, tt.sql)
 			} else {
 				parsed := parseSQL(t, tt.sql)
-				findings = rule.Check(parsed, "query.sql", 20, tt.sql)
+				findings = rule.Check(context.Background(), parsed, "query.sql", 20, tt.sql)
 			}
 
 			if len(findings) != tt.wantCount {

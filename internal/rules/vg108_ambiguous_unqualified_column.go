@@ -33,6 +33,7 @@ func (r *AmbiguousUnqualifiedColumnRule) DefaultSeverity() Severity { return Sev
 
 // CheckQuerySchema validates unqualified column usage against resolved tables.
 func (r *AmbiguousUnqualifiedColumnRule) CheckQuerySchema(
+	_ context.Context,
 	snap *schema.Snapshot,
 	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,

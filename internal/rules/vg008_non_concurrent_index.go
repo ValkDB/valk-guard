@@ -33,7 +33,7 @@ func (r *NonConcurrentIndexRule) CommandTargets() []postgresparser.QueryCommand 
 }
 
 // Check reports findings for CREATE INDEX operations missing CONCURRENTLY.
-func (r *NonConcurrentIndexRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+func (r *NonConcurrentIndexRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandDDL {
 		return nil
 	}

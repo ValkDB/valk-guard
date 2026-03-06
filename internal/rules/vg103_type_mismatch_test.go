@@ -363,7 +363,7 @@ func TestTypeMismatchRule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			findings := rule.CheckSchema(tt.snap, tt.models)
+			findings := rule.CheckSchema(context.Background(), tt.snap, tt.models)
 			if len(findings) != tt.wantCount {
 				t.Fatalf("got %d findings, want %d: %+v", len(findings), tt.wantCount, findings)
 			}

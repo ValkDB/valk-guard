@@ -30,7 +30,7 @@ func (r *MissingNotNullRule) Description() string {
 func (r *MissingNotNullRule) DefaultSeverity() Severity { return SeverityWarning }
 
 // CheckSchema compares schema columns against model definitions.
-func (r *MissingNotNullRule) CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding {
+func (r *MissingNotNullRule) CheckSchema(_ context.Context, snap *schema.Snapshot, models []schema.ModelDef) []Finding {
 	var findings []Finding
 	for _, model := range models {
 		td := matchTable(snap, model.Table)
