@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/valkdb/valk-guard/internal/rules"
+	"github.com/valkdb/valk-guard/internal/scanner"
 )
 
 func TestRunScanJSONFindingsExitCode(t *testing.T) {
@@ -116,6 +119,33 @@ func TestRunScanExcludedBrokenGoFileDoesNotFail(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+}
+
+func TestApplyStatementRange(t *testing.T) {
+	findings := []rules.Finding{
+		{
+			RuleID:  "VG106",
+			File:    "complex_queries.sql",
+			Line:    21,
+			Column:  1,
+			Message: "unknown filter column",
+		},
+	}
+
+	applyStatementRange(findings, scanner.SQLStatement{
+		File:      "complex_queries.sql",
+		Line:      21,
+		Column:    5,
+		EndLine:   26,
+		EndColumn: 9,
+	})
+
+	if findings[0].Column != 5 {
+		t.Fatalf("expected statement start column to propagate, got %d", findings[0].Column)
+	}
+	if findings[0].EndLine != 26 || findings[0].EndColumn != 9 {
+		t.Fatalf("expected statement end range to propagate, got end=%d:%d", findings[0].EndLine, findings[0].EndColumn)
 	}
 }
 
