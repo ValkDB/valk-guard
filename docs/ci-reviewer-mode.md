@@ -3,7 +3,8 @@
 Valk Guard is CLI-first and can run locally with no CI integration.
 
 GitHub reviewer mode is optional and can post inline pull-request review comments via reviewdog.
-The CI job also exports raw findings as a JSON artifact (`valk-guard.json`) for downstream use.
+The cleanest path is `--format rdjsonl` directly into reviewdog. You can still
+export raw findings as `json` for downstream tooling when needed.
 
 ## Required Permissions
 
@@ -16,24 +17,34 @@ permissions:
 ## Non-Blocking PR Comment Workflow
 
 ```yaml
+- uses: reviewdog/action-setup@v1
+
 - name: Run Valk Guard on changed files
   id: scan
   run: |
-    valk-guard scan "${files[@]}" --format json > valk-guard.json || exit_code=$?
+    valk-guard scan "${files[@]}" --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
     if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
   continue-on-error: false
 
-- name: Upload JSON findings artifact
-  uses: actions/upload-artifact@v4
-  with:
-    name: valk-guard-pr-json-${{ github.event.pull_request.number }}
-    path: valk-guard.json
+- name: Post PR review comments
+  env:
+    REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: |
+    reviewdog \
+      -f=rdjsonl \
+      -name="valk-guard" \
+      -reporter=github-pr-review \
+      -filter-mode=added \
+      -fail-level=none \
+      < valk-guard.rdjsonl
 ```
 
-This keeps CI non-blocking for findings (`exit 1`) while still posting review comments and preserving machine-readable output.
+This keeps CI non-blocking for findings (`exit 1`) while still posting review comments.
 Exit code `1` (findings detected) is treated as non-fatal; only exit code `2` or higher (config/runtime error) fails the step.
 
-## Full Example Workflow (Install + JSON + SARIF)
+For CI reproducibility, prefer pinning the install target to a version/tag instead of `@latest`.
+
+## Full Example Workflow (Install + reviewdog + JSON + SARIF)
 
 ```yaml
 name: valk-guard-pr
@@ -71,16 +82,38 @@ jobs:
             **/*.go
             **/*.py
 
-      - name: Run valk-guard (JSON)
+      - uses: reviewdog/action-setup@v1
+
+      - name: Run valk-guard (reviewdog)
         if: steps.changed.outputs.any_changed == 'true'
-        id: scan_json
+        id: scan_reviewdog
         run: |
           # tj-actions/changed-files with separator: '\n' writes one path per line.
           # mapfile -t reads that safely, handling spaces in filenames.
           mapfile -t files < <(printf '%s' "${{ steps.changed.outputs.all_changed_files }}")
-          valk-guard scan "${files[@]}" --format json > valk-guard.json || exit_code=$?
+          valk-guard scan "${files[@]}" --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
           if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
         continue-on-error: false
+
+      - name: Post PR review comments
+        if: steps.changed.outputs.any_changed == 'true'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          reviewdog \
+            -f=rdjsonl \
+            -name="valk-guard" \
+            -reporter=github-pr-review \
+            -filter-mode=added \
+            -fail-level=none \
+            < valk-guard.rdjsonl
+
+      - name: Run valk-guard (JSON artifact)
+        if: steps.changed.outputs.any_changed == 'true'
+        run: |
+          mapfile -t files < <(printf '%s' "${{ steps.changed.outputs.all_changed_files }}")
+          valk-guard scan "${files[@]}" --format json > valk-guard.json || exit_code=$?
+          if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
 
       - name: Upload JSON findings artifact
         if: steps.changed.outputs.any_changed == 'true'
@@ -102,6 +135,14 @@ jobs:
           sarif_file: valk-guard.sarif
 ```
 
+## JSON Envelope Note (custom post-processing)
+
+`--format json` emits a versioned envelope (`version`, `findings`, `summary`).
+If you post-process with `jq`, normalize input before iterating findings:
+
+```bash
+jq -cr '((if type == "array" then . else .findings end) // [])[]'
+```
 ## Changed-Files-Only Pattern (Recommended for PRs)
 
 Run Valk Guard on PR-diff files (`.sql`, `.go`, `.py`) instead of full-repo scans to reduce noise and runtime.

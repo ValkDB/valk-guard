@@ -27,6 +27,9 @@ valk-guard scan .
 # See results as JSON
 valk-guard scan . --format json
 
+# Emit reviewdog-ready diagnostics
+valk-guard scan . --format rdjsonl
+
 # Export SARIF for GitHub Code Scanning
 valk-guard scan . --format sarif --output results.sarif
 ```
@@ -214,10 +217,24 @@ jobs:
   pr-review:
     if: github.event_name == 'pull_request'
     steps:
+      - uses: reviewdog/action-setup@v1
+
       - name: Run valk-guard
         run: |
-          valk-guard scan "${files[@]}" --format json > valk-guard.json || exit_code=$?
+          valk-guard scan "${files[@]}" --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
           if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
+
+      - name: Post review comments
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          reviewdog \
+            -f=rdjsonl \
+            -name="valk-guard" \
+            -reporter=github-pr-review \
+            -filter-mode=added \
+            -fail-level=none \
+            < valk-guard.rdjsonl
 ```
 
 Findings (exit 1) are non-blocking for review comments. Config/parser failures (exit 2+) fail the job.

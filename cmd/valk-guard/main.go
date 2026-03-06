@@ -125,6 +125,7 @@ func newScanCmd(stdout, stderr io.Writer) *cobra.Command {
 		Example: strings.Join([]string{
 			"  valk-guard scan .",
 			"  valk-guard scan ./queries --format json",
+			"  valk-guard scan . --format rdjsonl",
 			"  valk-guard scan . --format sarif --output results.sarif",
 			"  valk-guard scan . --config .valk-guard.yaml",
 		}, "\n"),
@@ -141,7 +142,7 @@ func newScanCmd(stdout, stderr io.Writer) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&opts.configPath, "config", "", "Path to config file (default: .valk-guard.yaml or .valk-guard.yml)")
-	cmd.Flags().StringVar(&opts.format, "format", "", "Output format: terminal (default), json, sarif")
+	cmd.Flags().StringVar(&opts.format, "format", "", "Output format: terminal (default), json, rdjsonl, sarif")
 	cmd.Flags().StringVar(&opts.outputPath, "output", "", "Write report to file instead of stdout")
 	cmd.Flags().StringVar(&opts.logLevel, "log-level", "warn", "Log level: debug, info, warn, error")
 
@@ -644,17 +645,20 @@ func collectScannerInputs(ctx context.Context, paths []string, cfg *config.Confi
 }
 
 // buildReporter constructs the output.Reporter corresponding to the requested
-// format string (config.FormatTerminal, config.FormatJSON, or config.FormatSARIF).
+// format string (config.FormatTerminal, config.FormatJSON, config.FormatRDJSONL,
+// or config.FormatSARIF).
 func buildReporter(format string) (output.Reporter, error) {
 	switch format {
 	case config.FormatTerminal:
 		return &output.TerminalReporter{}, nil
 	case config.FormatJSON:
 		return &output.JSONReporter{}, nil
+	case config.FormatRDJSONL:
+		return &output.RDJSONLReporter{}, nil
 	case config.FormatSARIF:
 		return &output.SARIFReporter{Version: version}, nil
 	default:
-		return nil, fmt.Errorf("invalid format %q: must be terminal, json, or sarif", format)
+		return nil, fmt.Errorf("invalid format %q: must be terminal, json, rdjsonl, or sarif", format)
 	}
 }
 

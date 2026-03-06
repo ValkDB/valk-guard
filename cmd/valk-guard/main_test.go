@@ -32,6 +32,27 @@ func TestRunScanJSONFindingsExitCode(t *testing.T) {
 	}
 }
 
+func TestRunScanRDJSONLFindingsExitCode(t *testing.T) {
+	tmpDir := t.TempDir()
+	sqlPath := filepath.Join(tmpDir, "query.sql")
+	if err := os.WriteFile(sqlPath, []byte("SELECT * FROM users;"), 0644); err != nil {
+		t.Fatalf("failed to write SQL fixture: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"scan", tmpDir, "--format", "rdjsonl"}, &stdout, &stderr)
+	if code != exitFindings {
+		t.Fatalf("expected exit code %d, got %d (stderr=%q)", exitFindings, code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"code":{"value":"VG001"}`) {
+		t.Fatalf("expected rdjsonl output, got: %s", stdout.String())
+	}
+}
+
 func TestRunScanParseErrorIsNonFatal(t *testing.T) {
 	tmpDir := t.TempDir()
 	sqlPath := filepath.Join(tmpDir, "broken.sql")
