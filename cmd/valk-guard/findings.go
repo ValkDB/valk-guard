@@ -42,19 +42,20 @@ func sortFindings(findings []rules.Finding) {
 // statement so reporters can render multiline diagnostics consistently.
 func applyStatementRange(findings []rules.Finding, stmt *scanner.SQLStatement) {
 	startLine, startColumn, endLine, endColumn := normalizeStatementRange(stmt)
-	for i := range findings {
-		if findings[i].Line < 1 {
-			findings[i].Line = startLine
+	for i, finding := range findings {
+		if finding.Line < 1 {
+			finding.Line = startLine
 		}
-		if findings[i].Column < 1 || (findings[i].Column == 1 && startColumn > 1 && findings[i].Line == startLine) {
-			findings[i].Column = startColumn
+		if finding.Column < 1 || (finding.Column == 1 && startColumn > 1 && finding.Line == startLine) {
+			finding.Column = startColumn
 		}
-		if findings[i].EndLine < findings[i].Line {
-			findings[i].EndLine = endLine
+		if finding.EndLine < finding.Line {
+			finding.EndLine = endLine
 		}
-		if findings[i].EndColumn < 1 {
-			findings[i].EndColumn = endColumn
+		if finding.EndColumn < 1 {
+			finding.EndColumn = endColumn
 		}
+		findings[i] = finding
 	}
 }
 
