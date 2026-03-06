@@ -12,7 +12,7 @@ package sqlalchemy
 
 import (
 	"context"
-	"embed"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"iter"
@@ -25,7 +25,7 @@ import (
 )
 
 //go:embed extract_sql.py
-var extractScript embed.FS
+var extractScript []byte
 
 // sqlalchemyMarkers are the quick-reject keywords used to determine whether a
 // .py file likely contains SQLAlchemy or ORM query-builder usage.
@@ -103,11 +103,14 @@ func yieldWithDirectives(
 		}
 
 		if !yield(scanner.SQLStatement{
-			SQL:      e.SQL,
-			File:     e.File,
-			Line:     e.Line,
-			Engine:   scanner.EngineSQLAlchemy,
-			Disabled: scanner.DisabledRulesForLine(directives, e.Line),
+			SQL:       e.SQL,
+			File:      e.File,
+			Line:      e.Line,
+			Column:    e.Column,
+			EndLine:   e.EndLine,
+			EndColumn: e.EndColumn,
+			Engine:    scanner.EngineSQLAlchemy,
+			Disabled:  scanner.DisabledRulesForLine(directives, e.Line),
 		}, nil) {
 			return
 		}
@@ -116,21 +119,19 @@ func yieldWithDirectives(
 
 // pyResult represents a single SQL extraction from the Python script.
 type pyResult struct {
-	File string `json:"file"`
-	Line int    `json:"line"`
-	SQL  string `json:"sql"`
+	File      string `json:"file"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndLine   int    `json:"end_line"`
+	EndColumn int    `json:"end_column"`
+	SQL       string `json:"sql"`
 }
 
 // runPythonExtractor invokes the embedded Python script on the given files
 // and returns the extracted SQL statements. All files are passed in a single
 // subprocess invocation to amortize the ~20ms Python startup cost.
 func runPythonExtractor(parent context.Context, files []string) ([]pyResult, error) {
-	scriptData, err := extractScript.ReadFile("extract_sql.py")
-	if err != nil {
-		return nil, err
-	}
-
-	scriptPath, cleanup, err := pyrunner.WriteTempScript(scriptData)
+	scriptPath, cleanup, err := pyrunner.WriteTempScript(extractScript)
 	if err != nil {
 		return nil, err
 	}

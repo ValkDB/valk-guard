@@ -116,6 +116,18 @@ Schema-aware rules honor per-rule `engines` filtering:
 - `sqlalchemy` applies to models extracted from Python SQLAlchemy code.
 - `sql`, `go`, `goqu`, and `sqlalchemy` apply to query-schema statement sources.
 
+## Goqu SELECT * Noise
+
+The Goqu scanner synthesizes `SELECT *` for any `goqu.From(...)` chain that does not explicitly call `.Select()`. This is idiomatic Goqu (the library defaults to `SELECT *` too), but it triggers VG001 on every such query.
+
+To suppress VG001 for Goqu while keeping it active for other engines:
+
+```yaml
+rules:
+  VG001:
+    engines: [sql, go, sqlalchemy]  # exclude goqu
+```
+
 ## Current Limitation
 
 Path-scoped per-rule overrides (for example: downgrade `VG008` only for `db/migrations/**`) are not implemented yet.

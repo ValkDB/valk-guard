@@ -80,14 +80,15 @@ func (s *RawSQLScanner) Scan(ctx context.Context, paths []string) iter.Seq2[SQLS
 
 // sqlScanState holds all mutable state threaded through the SQL scanner loop.
 type sqlScanState struct {
-	current      strings.Builder
-	line         int
-	startLine    int
-	state        int
-	blockDepth   int
-	dollarTag    string
-	tagWindow    []byte
-	escapeString bool // true when inside a PostgreSQL E'...' string
+	current         strings.Builder
+	line            int
+	startLine       int
+	lastContentLine int
+	state           int
+	blockDepth      int
+	dollarTag       string
+	tagWindow       []byte
+	escapeString    bool // true when inside a PostgreSQL E'...' string
 }
 
 // scanSQLFile streams a SQL file and splits it into individual statements
@@ -105,20 +106,26 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 		tagWindow: make([]byte, 0, 16),
 	}
 
-	emitStatement := func(sql string, stmtLine int) error {
+	emitStatement := func(sql string, stmtLine, stmtEndLine int) error {
 		stmt := strings.TrimSpace(sql)
 		if stmt == "" {
 			return nil
 		}
 		if stmtLine == 0 {
-			stmtLine = ss.line
+			return nil
+		}
+		if stmtEndLine < stmtLine {
+			stmtEndLine = stmtLine
 		}
 		if !yield(SQLStatement{
-			SQL:      stmt,
-			File:     path,
-			Line:     stmtLine,
-			Engine:   EngineSQL,
-			Disabled: DisabledRulesForLine(directives, stmtLine),
+			SQL:       stmt,
+			File:      path,
+			Line:      stmtLine,
+			Column:    1,
+			EndLine:   stmtEndLine,
+			EndColumn: statementEndColumn(stmt),
+			Engine:    EngineSQL,
+			Disabled:  DisabledRulesForLine(directives, stmtLine),
 		}) {
 			return errRawSQLScannerStop
 		}
@@ -145,7 +152,7 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 			}
 
 		case scanStateLineComment:
-			ss.current.WriteByte(ch)
+			ss.writeByte(ch)
 			if ch == '\n' {
 				ss.line++
 				ss.state = scanStateNormal
@@ -167,7 +174,7 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 			}
 
 		case scanStateDollarQuote:
-			ss.current.WriteByte(ch)
+			ss.writeByte(ch)
 			if ch == '\n' {
 				ss.line++
 			}
@@ -182,7 +189,7 @@ func scanSQLFile(ctx context.Context, path string, directives []Directive, yield
 		}
 	}
 
-	if err := emitStatement(ss.current.String(), ss.startLine); err != nil {
+	if err := emitStatement(ss.current.String(), ss.startLine, ss.lastContentLine); err != nil {
 		return err
 	}
 
@@ -197,45 +204,46 @@ func handleNormalState(
 	ss *sqlScanState,
 	ch byte,
 	path string,
-	emitStatement func(string, int) error,
+	emitStatement func(string, int, int) error,
 ) error {
 	switch {
 	case ch == '\n':
 		ss.line++
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 	case ch == ';':
-		if err := emitStatement(ss.current.String(), ss.startLine); err != nil {
+		if err := emitStatement(ss.current.String(), ss.startLine, ss.lastContentLine); err != nil {
 			return err
 		}
 		ss.current.Reset()
 		ss.startLine = 0
+		ss.lastContentLine = 0
 	case ch == '-':
 		if ok, err := tryStartLineComment(reader, ss, ch); err != nil {
 			return fmt.Errorf("reading sql file %s: %w", path, err)
 		} else if ok {
 			return nil
 		}
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 	case ch == '/':
 		if ok, err := tryStartBlockComment(reader, ss, ch); err != nil {
 			return fmt.Errorf("reading sql file %s: %w", path, err)
 		} else if ok {
 			return nil
 		}
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 	case ch == '\'':
 		if ss.startLine == 0 {
 			ss.startLine = ss.line
 		}
 		ss.escapeString = prevNonSpaceIsE(ss.current.String())
 		ss.state = scanStateSingleQuote
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 	case ch == '"':
 		if ss.startLine == 0 {
 			ss.startLine = ss.line
 		}
 		ss.state = scanStateDoubleQuote
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 	case ch == '$':
 		// tryStartDollarQuote always writes to ss.current via consumeDollarTag,
 		// so we must not write ch here to avoid double-writing the '$'.
@@ -246,7 +254,7 @@ func handleNormalState(
 		if ss.startLine == 0 && !isSpace(ch) {
 			ss.startLine = ss.line
 		}
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 	}
 	return nil
 }
@@ -259,12 +267,9 @@ func tryStartLineComment(reader *bufio.Reader, ss *sqlScanState, ch byte) (bool,
 		return false, err
 	}
 	if ok && next == '-' {
-		if ss.startLine == 0 {
-			ss.startLine = ss.line
-		}
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 		_, _ = reader.ReadByte()
-		ss.current.WriteByte(next)
+		ss.writeByte(next)
 		ss.state = scanStateLineComment
 		return true, nil
 	}
@@ -279,12 +284,9 @@ func tryStartBlockComment(reader *bufio.Reader, ss *sqlScanState, ch byte) (bool
 		return false, err
 	}
 	if ok && next == '*' {
-		if ss.startLine == 0 {
-			ss.startLine = ss.line
-		}
-		ss.current.WriteByte(ch)
+		ss.writeByte(ch)
 		_, _ = reader.ReadByte()
-		ss.current.WriteByte(next)
+		ss.writeByte(next)
 		ss.state = scanStateBlockComment
 		ss.blockDepth = 1
 		return true, nil
@@ -298,7 +300,7 @@ func tryStartDollarQuote(reader *bufio.Reader, ss *sqlScanState, ch byte) (bool,
 	if ss.startLine == 0 {
 		ss.startLine = ss.line
 	}
-	tag, ok, err := consumeDollarTag(reader, &ss.current)
+	tag, ok, err := consumeDollarTag(reader, ss)
 	if err != nil {
 		return false, err
 	}
@@ -315,7 +317,7 @@ func tryStartDollarQuote(reader *bufio.Reader, ss *sqlScanState, ch byte) (bool,
 // comment, tracking nesting depth and transitioning back to normal when the
 // comment closes.
 func handleBlockCommentState(reader *bufio.Reader, ss *sqlScanState, ch byte, path string) error {
-	ss.current.WriteByte(ch)
+	ss.writeByte(ch)
 	if ch == '\n' {
 		ss.line++
 	}
@@ -327,7 +329,7 @@ func handleBlockCommentState(reader *bufio.Reader, ss *sqlScanState, ch byte, pa
 		}
 		if ok && next == '*' {
 			_, _ = reader.ReadByte()
-			ss.current.WriteByte(next)
+			ss.writeByte(next)
 			ss.blockDepth++
 		}
 		return nil
@@ -340,7 +342,7 @@ func handleBlockCommentState(reader *bufio.Reader, ss *sqlScanState, ch byte, pa
 		}
 		if ok && next == '/' {
 			_, _ = reader.ReadByte()
-			ss.current.WriteByte(next)
+			ss.writeByte(next)
 			ss.blockDepth--
 			if ss.blockDepth == 0 {
 				ss.state = scanStateNormal
@@ -357,7 +359,7 @@ func handleBlockCommentState(reader *bufio.Reader, ss *sqlScanState, ch byte, pa
 // backslash escapes in PostgreSQL E-strings) and transitions back to normal
 // state when the closing delimiter is found.
 func handleQuoteState(reader *bufio.Reader, ss *sqlScanState, ch, quote byte, path string) error {
-	ss.current.WriteByte(ch)
+	ss.writeByte(ch)
 	if ch == '\n' {
 		ss.line++
 	}
@@ -370,7 +372,7 @@ func handleQuoteState(reader *bufio.Reader, ss *sqlScanState, ch, quote byte, pa
 		}
 		if ok {
 			_, _ = reader.ReadByte()
-			ss.current.WriteByte(next)
+			ss.writeByte(next)
 			if next == '\n' {
 				ss.line++
 			}
@@ -388,7 +390,7 @@ func handleQuoteState(reader *bufio.Reader, ss *sqlScanState, ch, quote byte, pa
 	}
 	if ok && next == quote {
 		_, _ = reader.ReadByte()
-		ss.current.WriteByte(next)
+		ss.writeByte(next)
 		return nil
 	}
 	ss.state = scanStateNormal
@@ -434,13 +436,13 @@ func scanDirectives(path string) ([]Directive, error) {
 // or "$tag$") from reader. On success it writes the tag bytes to current and
 // returns the full tag string with ok=true. If the bytes do not form a valid
 // dollar tag, consumed bytes are written to current and ok=false is returned.
-func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (tag string, ok bool, err error) {
+func consumeDollarTag(reader *bufio.Reader, ss *sqlScanState) (tag string, ok bool, err error) {
 	buf := []byte{'$'}
 
 	for {
 		ch, readErr := reader.ReadByte()
 		if errors.Is(readErr, io.EOF) {
-			current.Write(buf)
+			ss.writeBytes(buf)
 			return "", false, nil
 		}
 		if readErr != nil {
@@ -450,7 +452,7 @@ func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (tag strin
 		if ch == '$' {
 			buf = append(buf, ch)
 			tag := string(buf)
-			current.Write(buf)
+			ss.writeBytes(buf)
 			return tag, true, nil
 		}
 
@@ -462,8 +464,24 @@ func consumeDollarTag(reader *bufio.Reader, current *strings.Builder) (tag strin
 		if err := reader.UnreadByte(); err != nil {
 			return "", false, err
 		}
-		current.Write(buf)
+		ss.writeBytes(buf)
 		return "", false, nil
+	}
+}
+
+// writeByte appends ch to the current statement buffer and tracks the most
+// recent line that contains non-whitespace statement content.
+func (ss *sqlScanState) writeByte(ch byte) {
+	ss.current.WriteByte(ch)
+	if !isSpace(ch) {
+		ss.lastContentLine = ss.line
+	}
+}
+
+// writeBytes appends a byte slice while preserving content-line tracking.
+func (ss *sqlScanState) writeBytes(data []byte) {
+	for _, ch := range data {
+		ss.writeByte(ch)
 	}
 }
 
@@ -515,4 +533,14 @@ func prevNonSpaceIsE(s string) bool {
 		return ch == 'E' || ch == 'e'
 	}
 	return false
+}
+
+// statementEndColumn returns the 1-based exclusive end column for the final
+// non-blank line in a trimmed SQL statement.
+func statementEndColumn(sql string) int {
+	lines := strings.Split(strings.TrimSpace(sql), "\n")
+	if len(lines) == 0 {
+		return 1
+	}
+	return len(strings.TrimRight(lines[len(lines)-1], "\r")) + 1
 }

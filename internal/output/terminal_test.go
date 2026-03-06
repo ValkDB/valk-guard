@@ -68,6 +68,21 @@ func TestTerminalReporter(t *testing.T) {
 			},
 			wantContains: []string{"..."},
 		},
+		{
+			name: "synthetic SQL strips internal prefix",
+			findings: []rules.Finding{
+				{
+					RuleID:   "VG004",
+					Severity: rules.SeverityWarning,
+					Message:  "missing LIMIT",
+					File:     "queries.py",
+					Line:     23,
+					SQL:      `/* valk-guard:synthetic sqlalchemy-ast */ SELECT "User"."id" FROM "User"`,
+				},
+			},
+			wantContains: []string{`SELECT "User"."id" FROM "User"`},
+			wantAbsent:   []string{"valk-guard:synthetic"},
+		},
 	}
 
 	for _, tt := range tests {

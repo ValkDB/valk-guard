@@ -15,7 +15,7 @@ references a column the database does not have, which will cause runtime errors.
 ## Running valk-guard
 
 ```bash
-valk-guard scan examples/schema_drift/
+valk-guard scan docs/examples/schema_drift/
 ```
 
 Expected output includes findings such as:
@@ -24,7 +24,7 @@ Expected output includes findings such as:
   the schema changes.
 - `VG004 unbounded-select` — querying without `LIMIT` can cause full-table
   scans as the dataset grows.
-- `VG101` (schema-aware rules, if enabled) — flags `legacy_field` as a column
+- `VG101` (schema-aware rules) — flags `legacy_field` as a column
   present in the model but absent from the migration.
 
 ## What this illustrates

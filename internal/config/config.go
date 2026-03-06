@@ -97,8 +97,12 @@ func loadFromFile(path string) (*Config, error) {
 
 // validateConfig checks that all configured values are valid.
 func validateConfig(cfg *Config) error {
-	if cfg.Format != "" && cfg.Format != FormatTerminal && cfg.Format != FormatJSON && cfg.Format != FormatSARIF {
-		return fmt.Errorf("invalid format %q: must be terminal, json, or sarif", cfg.Format)
+	if cfg.Format != "" &&
+		cfg.Format != FormatTerminal &&
+		cfg.Format != FormatJSON &&
+		cfg.Format != FormatRDJSONL &&
+		cfg.Format != FormatSARIF {
+		return fmt.Errorf("invalid format %q: must be terminal, json, rdjsonl, or sarif", cfg.Format)
 	}
 
 	mode := normalizeGoModelMappingMode(cfg.GoModel.MappingMode)

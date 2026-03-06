@@ -5,7 +5,8 @@
 
 Usage: python3 extract_sql.py file1.py file2.py ...
 
-Output: JSON array of objects with keys: file, line, sql
+Output: JSON array of objects with keys: file, line, column, end_line,
+end_column, sql
 """
 
 import ast
@@ -21,6 +22,19 @@ FILTER_METHODS = {"filter", "filter_by", "where"}
 FOR_UPDATE_METHODS = {"with_for_update"}
 
 
+def _has_sqlalchemy_import(tree):
+    """Check if the file imports sqlalchemy in any form."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name and ("sqlalchemy" in alias.name):
+                    return True
+        if isinstance(node, ast.ImportFrom):
+            if node.module and ("sqlalchemy" in node.module):
+                return True
+    return False
+
+
 def extract_sql_from_file(filepath):
     """Parse a Python file and extract raw and synthetic SQL strings."""
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
@@ -28,15 +42,18 @@ def extract_sql_from_file(filepath):
 
     tree = ast.parse(source, filename=filepath)
 
+    has_sa = _has_sqlalchemy_import(tree)
+
     results = []
     seen = set()
     handled_text_ids = set()
     parents = _build_parent_map(tree)
 
     _extract_raw_execute_text(tree, filepath, handled_text_ids, seen, results)
-    _extract_synthetic_chain_sql(tree, parents, filepath, seen, results)
+    if has_sa:
+        _extract_synthetic_chain_sql(tree, parents, filepath, seen, results)
 
-    results.sort(key=lambda r: (r["line"], r["sql"]))
+    results.sort(key=lambda r: (r["line"], r.get("column", 1), r["sql"]))
     return results
 
 
@@ -60,12 +77,12 @@ def _extract_raw_execute_text(tree, filepath, handled_text_ids, seen, results):
                 handled_text_ids.add(id(first_arg))
                 sql = _get_first_string_arg(first_arg)
                 if sql is not None and sql.strip():
-                    _append_unique(results, seen, filepath, node.lineno, sql.strip())
+                    _append_unique(results, seen, filepath, node, sql.strip())
             continue
 
         sql = _get_string_value(first_arg)
         if sql is not None and sql.strip():
-            _append_unique(results, seen, filepath, node.lineno, sql.strip())
+            _append_unique(results, seen, filepath, node, sql.strip())
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
@@ -90,7 +107,7 @@ def _extract_synthetic_chain_sql(tree, parents, filepath, seen, results):
             results,
             seen,
             filepath,
-            node.lineno,
+            node,
             SYNTHETIC_PREFIX + synthetic,
         )
 
@@ -555,7 +572,7 @@ def _try_standalone_text(call, filepath, handled_ids, seen, results):
         return
     sql = _get_first_string_arg(call)
     if sql is not None and sql.strip():
-        _append_unique(results, seen, filepath, call.lineno, sql.strip())
+        _append_unique(results, seen, filepath, call, sql.strip())
 
 
 def _get_first_string_arg(call_node):
@@ -572,10 +589,14 @@ def _get_string_value(node):
     return None
 
 
-def _append_unique(results, seen, filepath, line, sql):
+def _append_unique(results, seen, filepath, node, sql):
     sql = sql.strip()
     if not sql:
         return
+    line = getattr(node, "lineno", 1)
+    end_line = getattr(node, "end_lineno", line)
+    column = getattr(node, "col_offset", 0) + 1
+    end_column = getattr(node, "end_col_offset", column) + 1
     key = (filepath, line, sql)
     if key in seen:
         return
@@ -583,6 +604,9 @@ def _append_unique(results, seen, filepath, line, sql):
     results.append({
         "file": filepath,
         "line": line,
+        "column": column,
+        "end_line": end_line,
+        "end_column": end_column,
         "sql": sql,
     })
 
