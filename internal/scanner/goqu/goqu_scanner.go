@@ -662,14 +662,15 @@ func safeIdent(raw, fallback string) string {
 
 	for i, r := range raw {
 		if i == 0 {
-			if !(unicode.IsLetter(r) || r == '_') {
-				return fallback
+			if unicode.IsLetter(r) || r == '_' {
+				continue
 			}
-			continue
-		}
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.') {
 			return fallback
 		}
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '.' {
+			continue
+		}
+		return fallback
 	}
 	return raw
 }

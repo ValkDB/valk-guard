@@ -206,45 +206,45 @@ func handleNormalState(
 	path string,
 	emitStatement func(string, int, int) error,
 ) error {
-	switch {
-	case ch == '\n':
+	switch ch {
+	case '\n':
 		ss.line++
 		ss.writeByte(ch)
-	case ch == ';':
+	case ';':
 		if err := emitStatement(ss.current.String(), ss.startLine, ss.lastContentLine); err != nil {
 			return err
 		}
 		ss.current.Reset()
 		ss.startLine = 0
 		ss.lastContentLine = 0
-	case ch == '-':
+	case '-':
 		if ok, err := tryStartLineComment(reader, ss, ch); err != nil {
 			return fmt.Errorf("reading sql file %s: %w", path, err)
 		} else if ok {
 			return nil
 		}
 		ss.writeByte(ch)
-	case ch == '/':
+	case '/':
 		if ok, err := tryStartBlockComment(reader, ss, ch); err != nil {
 			return fmt.Errorf("reading sql file %s: %w", path, err)
 		} else if ok {
 			return nil
 		}
 		ss.writeByte(ch)
-	case ch == '\'':
+	case '\'':
 		if ss.startLine == 0 {
 			ss.startLine = ss.line
 		}
 		ss.escapeString = prevNonSpaceIsE(ss.current.String())
 		ss.state = scanStateSingleQuote
 		ss.writeByte(ch)
-	case ch == '"':
+	case '"':
 		if ss.startLine == 0 {
 			ss.startLine = ss.line
 		}
 		ss.state = scanStateDoubleQuote
 		ss.writeByte(ch)
-	case ch == '$':
+	case '$':
 		// tryStartDollarQuote always writes to ss.current via consumeDollarTag,
 		// so we must not write ch here to avoid double-writing the '$'.
 		if _, err := tryStartDollarQuote(reader, ss, ch); err != nil {
