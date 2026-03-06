@@ -269,6 +269,23 @@ func TestLoadInvalidFormat(t *testing.T) {
 	}
 }
 
+func TestLoadValidRDJSONLFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rdjsonl.yaml")
+	data := []byte("format: rdjsonl\n")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("expected rdjsonl format to load successfully, got: %v", err)
+	}
+	if cfg.Format != FormatRDJSONL {
+		t.Fatalf("expected format %q, got %q", FormatRDJSONL, cfg.Format)
+	}
+}
+
 func TestLoadInvalidSeverity(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad.yaml")

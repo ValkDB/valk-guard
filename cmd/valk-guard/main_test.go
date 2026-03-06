@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/valkdb/valk-guard/internal/rules"
+	"github.com/valkdb/valk-guard/internal/scanner"
 )
 
 func TestRunScanJSONFindingsExitCode(t *testing.T) {
@@ -29,6 +32,27 @@ func TestRunScanJSONFindingsExitCode(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"rule_id"`) {
 		t.Fatalf("expected JSON findings output, got: %s", stdout.String())
+	}
+}
+
+func TestRunScanRDJSONLFindingsExitCode(t *testing.T) {
+	tmpDir := t.TempDir()
+	sqlPath := filepath.Join(tmpDir, "query.sql")
+	if err := os.WriteFile(sqlPath, []byte("SELECT * FROM users;"), 0644); err != nil {
+		t.Fatalf("failed to write SQL fixture: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := run([]string{"scan", tmpDir, "--format", "rdjsonl"}, &stdout, &stderr)
+	if code != exitFindings {
+		t.Fatalf("expected exit code %d, got %d (stderr=%q)", exitFindings, code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"code":{"value":"VG001"}`) {
+		t.Fatalf("expected rdjsonl output, got: %s", stdout.String())
 	}
 }
 
@@ -95,6 +119,33 @@ func TestRunScanExcludedBrokenGoFileDoesNotFail(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
+	}
+}
+
+func TestApplyStatementRange(t *testing.T) {
+	findings := []rules.Finding{
+		{
+			RuleID:  "VG106",
+			File:    "complex_queries.sql",
+			Line:    21,
+			Column:  1,
+			Message: "unknown filter column",
+		},
+	}
+
+	applyStatementRange(findings, &scanner.SQLStatement{
+		File:      "complex_queries.sql",
+		Line:      21,
+		Column:    5,
+		EndLine:   26,
+		EndColumn: 9,
+	})
+
+	if findings[0].Column != 5 {
+		t.Fatalf("expected statement start column to propagate, got %d", findings[0].Column)
+	}
+	if findings[0].EndLine != 26 || findings[0].EndColumn != 9 {
+		t.Fatalf("expected statement end range to propagate, got end=%d:%d", findings[0].EndLine, findings[0].EndColumn)
 	}
 }
 
@@ -704,7 +755,7 @@ func TestRunScanNewSchemaRulesVG109VG110VG111(t *testing.T) {
 		filepath.Join(tmpDir, "db", "migrations", "001.sql"),
 		[]byte(strings.Join([]string{
 			"CREATE TABLE users (id INTEGER, email TEXT);",
-			"CREATE TABLE sessions (id INTEGER);",
+			"CREATE TABLE session (id INTEGER, created_at INTEGER);",
 			"CREATE TABLE orphan_table (id INTEGER);",
 		}, "\n")),
 		0644,
@@ -722,7 +773,8 @@ func TestRunScanNewSchemaRulesVG109VG110VG111(t *testing.T) {
 		"}",
 		"",
 		"type Session struct {",
-		"    ID int",
+		"    ID        int `db:\"id\"`",
+		"    CreatedAt int",
 		"}",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(tmpDir, "models.go"), []byte(goModels), 0644); err != nil {

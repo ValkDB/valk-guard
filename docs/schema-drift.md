@@ -30,7 +30,7 @@ Source-to-engine mapping is controlled in `cmd/valk-guard/source_bindings.go`:
 - `configEngines` map model sources to rule-engine filters for model schema rules.
 - `queryEngines` map statement engines to model snapshots for query-schema rules.
 
-`VG101`-`VG104` and `VG109`-`VG111` only fire when **both** SQL migrations and ORM models are present.  
+`VG101`-`VG104` and `VG109`-`VG111` only fire when **both** SQL migrations and ORM models are present.
 `VG105`-`VG108` require parsed query statements plus at least one schema source (migration snapshot and/or matching model snapshot).
 
 ## Supported Model Formats
@@ -195,6 +195,8 @@ VG103 fires when the model provides type information (Go field types and SQLAlch
 | `Boolean`, `bool`                 | BOOLEAN, BOOL                                                 |
 | `DateTime`, `time.Time`           | TIMESTAMP, TIMESTAMPTZ                                        |
 
+> **Note:** VG103 has no awareness of Go's `sql.Scanner`/`driver.Valuer` interfaces. Custom types that implement these interfaces (e.g., a Go `string` wrapper stored as `jsonb`) will produce false positives because only the underlying Go type is matched. Use inline suppression (`// valk-guard:disable VG103`) or disable VG103 for affected files via `exclude` in `.valk-guard.yaml`.
+
 ## Table Name Matching
 
 The `matchTable` helper resolves model table names against the schema snapshot using exact
@@ -208,3 +210,9 @@ Examples:
 - `addresses` -> `address` (no match)
 
 `VG104` only applies to explicit table mappings. Inferred table names are not used for table-not-found findings.
+
+## Known Limitations
+
+- **RENAME COLUMN/TABLE not supported**: The schema builder (`internal/schema/builder.go`) does not handle `ALTER TABLE RENAME COLUMN` or `ALTER TABLE RENAME TO`. If a migration renames a column or table, the old name remains in the snapshot and the new name is never added. This can cause false positives from VG101 (dropped-column) and VG105 (unknown-projection-column) when queries reference the renamed identifier.
+
+- **Quoted identifier case sensitivity**: The schema normalizes all table and column names to lowercase via `strings.ToLower`, which is correct for unquoted SQL identifiers (the vast majority of real-world usage). However, PostgreSQL preserves the original case for quoted identifiers (e.g., `CREATE TABLE "Users"`). Projects that rely on mixed-case quoted identifiers may see incorrect VG101-VG108 results because the schema snapshot loses the distinction between `"Users"` and `users`.

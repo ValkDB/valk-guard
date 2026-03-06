@@ -30,11 +30,14 @@ const (
 
 // SQLStatement represents a SQL statement extracted from a source file.
 type SQLStatement struct {
-	SQL      string   // The raw SQL text.
-	File     string   // Source file path.
-	Line     int      // 1-based line number where the statement starts.
-	Engine   Engine   // Statement source engine (sql/go/goqu/sqlalchemy).
-	Disabled []string // Rule IDs disabled via inline directives.
+	SQL       string   // The raw SQL text.
+	File      string   // Source file path.
+	Line      int      // 1-based line number where the statement starts.
+	Column    int      // 1-based column where the statement starts.
+	EndLine   int      // 1-based line number where the statement ends.
+	EndColumn int      // 1-based column where the statement ends.
+	Engine    Engine   // Statement source engine (sql/go/goqu/sqlalchemy).
+	Disabled  []string // Rule IDs disabled via inline directives.
 }
 
 // Scanner is the interface for components that find SQL in source files.

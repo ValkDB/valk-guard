@@ -115,13 +115,17 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 
 				if sql := extractGoquLiteral(call, alias); sql != "" {
 					pos := fset.Position(call.Pos())
+					end := fset.Position(call.End())
 					line := pos.Line
 					if !yield(scanner.SQLStatement{
-						SQL:      sql,
-						File:     path,
-						Line:     line,
-						Engine:   scanner.EngineGoqu,
-						Disabled: scanner.DisabledRulesForLine(directives, line),
+						SQL:       sql,
+						File:      path,
+						Line:      line,
+						Column:    pos.Column,
+						EndLine:   end.Line,
+						EndColumn: end.Column,
+						Engine:    scanner.EngineGoqu,
+						Disabled:  scanner.DisabledRulesForLine(directives, line),
 					}, nil) {
 						stop = true
 						return false
@@ -139,14 +143,18 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 				}
 
 				pos := fset.Position(call.Pos())
+				end := fset.Position(call.End())
 				line := pos.Line
 
 				if !yield(scanner.SQLStatement{
-					SQL:      syntheticPrefix + synthetic,
-					File:     path,
-					Line:     line,
-					Engine:   scanner.EngineGoqu,
-					Disabled: scanner.DisabledRulesForLine(directives, line),
+					SQL:       syntheticPrefix + synthetic,
+					File:      path,
+					Line:      line,
+					Column:    pos.Column,
+					EndLine:   end.Line,
+					EndColumn: end.Column,
+					Engine:    scanner.EngineGoqu,
+					Disabled:  scanner.DisabledRulesForLine(directives, line),
 				}, nil) {
 					stop = true
 					return false
@@ -189,20 +197,22 @@ func extractGoquLiteral(call *ast.CallExpr, alias string) string {
 // synthesizeFromChain generates a synthetic SQL statement from a goqu
 // method-chain call expression. It inspects the root method name to
 // determine the statement type (SELECT, UPDATE, DELETE) and delegates to
-// the appropriate synthesize helper. Returns "" if the chain is unrecognized.
+// the appropriate render helper. Returns "" if the chain is unrecognized.
 func synthesizeFromChain(call *ast.CallExpr, alias string) string {
 	chain, ok := flattenMethodChain(call, alias)
 	if !ok || len(chain) == 0 {
 		return ""
 	}
 
+	cp := collectChainParts(chain, alias)
+
 	switch chain[0].Name {
 	case "From":
-		return synthesizeSelect(chain, alias)
+		return renderSelect(&cp)
 	case "Update":
-		return synthesizeUpdate(chain, alias)
+		return renderUpdate(&cp)
 	case "Delete":
-		return synthesizeDelete(chain, alias)
+		return renderDelete(&cp)
 	default:
 		return ""
 	}
@@ -245,169 +255,142 @@ func flattenMethodChain(call *ast.CallExpr, alias string) ([]methodCall, bool) {
 	return chain, true
 }
 
-// synthesizeSelect builds a synthetic SELECT statement from a flattened goqu
-// method chain starting with From(). It handles Select, Join, Where, Limit,
-// and ForUpdate clauses, substituting safe placeholder identifiers for values
-// that cannot be statically resolved.
-func synthesizeSelect(chain []methodCall, alias string) string {
-	if len(chain[0].Args) == 0 {
-		return ""
+// chainParts holds the unified output of walking a goqu method chain.
+// It captures all clause data needed to render SELECT, UPDATE, or DELETE.
+type chainParts struct {
+	table      string
+	columns    []string
+	hasSelect  bool
+	joins      []joinPart
+	predicates []string
+	hasWhere   bool
+	hasLimit   bool
+	limitVal   string
+	forUpdate  bool
+}
+
+// joinPart holds a single JOIN clause extracted from the chain.
+type joinPart struct {
+	joinType string
+	table    string
+}
+
+// collectChainParts walks the method chain and populates a chainParts struct.
+func collectChainParts(chain []methodCall, alias string) chainParts {
+	cp := chainParts{
+		limitVal: "1",
 	}
 
-	fromTable := tableNameFromExpr(chain[0].Args[0], alias, "synthetic_table")
-	columns := []string{"*"} // goqu.From(...) defaults to SELECT *
-	hasSelect := false
-	hasWhere := false
-	hasLimit := false
-	hasForUpdate := false
-	limitVal := "1"
-	var joins []string
-	var predicates []string
+	if len(chain) == 0 || len(chain[0].Args) == 0 {
+		return cp
+	}
+	cp.table = tableNameFromExpr(chain[0].Args[0], alias, "synthetic_table")
 
 	for _, link := range chain[1:] {
 		switch link.Name {
 		case "Select":
-			hasSelect = true
+			cp.hasSelect = true
 			if cols := extractSelectColumns(link.Args, alias); len(cols) > 0 {
-				columns = cols
+				cp.columns = cols
 			}
 		case "Join", "InnerJoin", "LeftJoin", "RightJoin", "FullJoin":
-			joins = append(joins, joinClause(link.Name, link.Args, alias))
+			jt := "JOIN"
+			switch link.Name {
+			case "LeftJoin":
+				jt = "LEFT JOIN"
+			case "RightJoin":
+				jt = "RIGHT JOIN"
+			case "FullJoin":
+				jt = "FULL JOIN"
+			}
+			table := "synthetic_join"
+			if len(link.Args) > 0 {
+				table = tableNameFromExpr(link.Args[0], alias, "synthetic_join")
+			}
+			cp.joins = append(cp.joins, joinPart{joinType: jt, table: table})
 		case "Where":
-			hasWhere = true
+			cp.hasWhere = true
 			conds := extractPredicates(link.Args, alias)
 			if len(conds) == 0 {
 				conds = []string{"1=1"}
 			}
-			predicates = append(predicates, conds...)
+			cp.predicates = append(cp.predicates, conds...)
 		case "Limit":
-			hasLimit = true
-			limitVal = limitFromArgs(link.Args)
+			cp.hasLimit = true
+			cp.limitVal = limitFromArgs(link.Args)
 		case "ForUpdate":
-			hasForUpdate = true
+			cp.forUpdate = true
 		}
 	}
 
-	if !hasSelect {
+	return cp
+}
+
+// renderSelect builds a synthetic SELECT statement from collected chain parts.
+func renderSelect(cp *chainParts) string {
+	if cp.table == "" {
+		return ""
+	}
+
+	columns := cp.columns
+	if !cp.hasSelect || len(columns) == 0 {
 		columns = []string{"*"}
 	}
 
-	sql := fmt.Sprintf("SELECT %s FROM %s", strings.Join(columns, ", "), fromTable)
-	if len(joins) > 0 {
-		sql += " " + strings.Join(joins, " ")
+	sql := fmt.Sprintf("SELECT %s FROM %s", strings.Join(columns, ", "), cp.table)
+	for _, j := range cp.joins {
+		sql += fmt.Sprintf(" %s %s ON 1=1", j.joinType, j.table)
 	}
-	if hasWhere && len(predicates) > 0 {
-		sql += " WHERE " + strings.Join(predicates, " AND ")
+	if cp.hasWhere && len(cp.predicates) > 0 {
+		sql += " WHERE " + strings.Join(cp.predicates, " AND ")
 	}
-	if hasLimit {
-		sql += " LIMIT " + limitVal
+	if cp.hasLimit {
+		sql += " LIMIT " + cp.limitVal
 	}
-	if hasForUpdate {
+	if cp.forUpdate {
 		sql += " FOR UPDATE"
 	}
 	return sql
 }
 
-// synthesizeUpdate builds a synthetic UPDATE statement from a flattened goqu
-// method chain starting with Update(). It handles Join and Where clauses,
-// emitting a placeholder SET clause since the actual values cannot be
-// statically determined.
-func synthesizeUpdate(chain []methodCall, alias string) string {
-	if len(chain[0].Args) == 0 {
+// renderUpdate builds a synthetic UPDATE statement from collected chain parts.
+func renderUpdate(cp *chainParts) string {
+	if cp.table == "" {
 		return ""
 	}
 
-	table := tableNameFromExpr(chain[0].Args[0], alias, "synthetic_table")
-	var fromTables []string
-	var predicates []string
-	hasWhere := false
-
-	for _, link := range chain[1:] {
-		switch link.Name {
-		case "Join", "InnerJoin", "LeftJoin", "RightJoin", "FullJoin":
-			if len(link.Args) > 0 {
-				t := tableNameFromExpr(link.Args[0], alias, "synthetic_join")
-				fromTables = append(fromTables, t)
-			}
-		case "Where":
-			hasWhere = true
-			conds := extractPredicates(link.Args, alias)
-			if len(conds) == 0 {
-				conds = []string{"1=1"}
-			}
-			predicates = append(predicates, conds...)
+	sql := fmt.Sprintf("UPDATE %s SET synthetic_col = 1", cp.table)
+	if len(cp.joins) > 0 {
+		tables := make([]string, len(cp.joins))
+		for i, j := range cp.joins {
+			tables[i] = j.table
 		}
+		sql += " FROM " + strings.Join(tables, ", ")
 	}
-
-	sql := fmt.Sprintf("UPDATE %s SET synthetic_col = 1", table)
-	if len(fromTables) > 0 {
-		sql += " FROM " + strings.Join(fromTables, ", ")
-	}
-	if hasWhere && len(predicates) > 0 {
-		sql += " WHERE " + strings.Join(predicates, " AND ")
+	if cp.hasWhere && len(cp.predicates) > 0 {
+		sql += " WHERE " + strings.Join(cp.predicates, " AND ")
 	}
 	return sql
 }
 
-// synthesizeDelete builds a synthetic DELETE FROM statement from a flattened
-// goqu method chain starting with Delete(). It handles Join and Where clauses,
-// collecting joined tables into a USING clause.
-func synthesizeDelete(chain []methodCall, alias string) string {
-	if len(chain[0].Args) == 0 {
+// renderDelete builds a synthetic DELETE statement from collected chain parts.
+func renderDelete(cp *chainParts) string {
+	if cp.table == "" {
 		return ""
 	}
 
-	table := tableNameFromExpr(chain[0].Args[0], alias, "synthetic_table")
-	var usingTables []string
-	var predicates []string
-	hasWhere := false
-
-	for _, link := range chain[1:] {
-		switch link.Name {
-		case "Join", "InnerJoin", "LeftJoin", "RightJoin", "FullJoin":
-			if len(link.Args) > 0 {
-				t := tableNameFromExpr(link.Args[0], alias, "synthetic_join")
-				usingTables = append(usingTables, t)
-			}
-		case "Where":
-			hasWhere = true
-			conds := extractPredicates(link.Args, alias)
-			if len(conds) == 0 {
-				conds = []string{"1=1"}
-			}
-			predicates = append(predicates, conds...)
+	sql := fmt.Sprintf("DELETE FROM %s", cp.table)
+	if len(cp.joins) > 0 {
+		tables := make([]string, len(cp.joins))
+		for i, j := range cp.joins {
+			tables[i] = j.table
 		}
+		sql += " USING " + strings.Join(tables, ", ")
 	}
-
-	sql := fmt.Sprintf("DELETE FROM %s", table)
-	if len(usingTables) > 0 {
-		sql += " USING " + strings.Join(usingTables, ", ")
-	}
-	if hasWhere && len(predicates) > 0 {
-		sql += " WHERE " + strings.Join(predicates, " AND ")
+	if cp.hasWhere && len(cp.predicates) > 0 {
+		sql += " WHERE " + strings.Join(cp.predicates, " AND ")
 	}
 	return sql
-}
-
-// joinClause returns a SQL JOIN fragment for the given goqu join method name
-// and its AST arguments. The ON condition is always rendered as "1=1" since
-// the actual join condition cannot be reliably reconstructed from the AST.
-func joinClause(method string, args []ast.Expr, alias string) string {
-	joinType := "JOIN"
-	switch method {
-	case "LeftJoin":
-		joinType = "LEFT JOIN"
-	case "RightJoin":
-		joinType = "RIGHT JOIN"
-	case "FullJoin":
-		joinType = "FULL JOIN"
-	}
-
-	table := "synthetic_join"
-	if len(args) > 0 {
-		table = tableNameFromExpr(args[0], alias, "synthetic_join")
-	}
-	return fmt.Sprintf("%s %s ON 1=1", joinType, table)
 }
 
 // extractSelectColumns converts a slice of AST expressions from a goqu

@@ -17,13 +17,15 @@ const (
 
 // Finding represents a single lint finding produced by a rule.
 type Finding struct {
-	RuleID   string   `json:"rule_id"`
-	Severity Severity `json:"severity"`
-	Message  string   `json:"message"`
-	File     string   `json:"file"`
-	Line     int      `json:"line"`
-	Column   int      `json:"column"`
-	SQL      string   `json:"sql,omitempty"`
+	RuleID    string   `json:"rule_id"`
+	Severity  Severity `json:"severity"`
+	Message   string   `json:"message"`
+	File      string   `json:"file"`
+	Line      int      `json:"line"`
+	Column    int      `json:"column"`
+	EndLine   int      `json:"end_line,omitempty"`
+	EndColumn int      `json:"end_column,omitempty"`
+	SQL       string   `json:"sql,omitempty"`
 }
 
 // Rule is the interface that all valk-guard lint rules must implement.
@@ -42,6 +44,28 @@ type Rule interface {
 
 	// Check examines a parsed query and returns any findings.
 	Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding
+}
+
+// NormalizeRange returns a valid 1-based range, falling back to minimal
+// single-column spans when needed.
+func NormalizeRange(line, column, endLine, endColumn int) (startL, startC, endL, endC int) {
+	if line < 1 {
+		line = 1
+	}
+	if column < 1 {
+		column = 1
+	}
+	if endLine < line {
+		endLine = line
+	}
+	if endColumn < 1 {
+		if endLine > line {
+			endColumn = 1
+		} else {
+			endColumn = column + 1
+		}
+	}
+	return line, column, endLine, endColumn
 }
 
 // CommandTargetedRule is an optional interface for rules that only apply to

@@ -5,6 +5,7 @@
 If you discover a security vulnerability in Valk Guard, please report it responsibly:
 
 - **GitHub**: Use [Security Advisories](https://github.com/ValkDB/valk-guard/security/advisories/new) to report privately
+- Or [open an issue](https://github.com/ValkDB/valk-guard/issues/new) if the vulnerability is not sensitive
 
 Include:
 - Description of the vulnerability

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] - Unreleased
+## [0.1.0] - 2026-03-06
 
 ### Added
 
@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Mapping provenance tracking (`explicit` vs `inferred`) for model table and column mappings.
 
 #### Output and CI
-- Terminal, JSON, and SARIF 2.1.0 output formats.
+- Terminal, JSON, SARIF 2.1.0, and reviewdog rdjsonl output formats.
 - Per-rule enable/disable and severity override via `.valk-guard.yaml`.
 - Per-rule engine scoping (`sql`, `go`, `goqu`, `sqlalchemy`, `all`).
 - File/path exclusion with glob support (`*` and `**`).
@@ -56,4 +56,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - GitHub Actions workflow with reviewdog PR review comments, self-scan dogfooding, and cross-platform builds.
 - GoReleaser configuration for cross-compiled releases.
 
-[1.0.0]: https://github.com/ValkDB/valk-guard/releases/tag/v1.0.0
+[0.1.0]: https://github.com/ValkDB/valk-guard/releases/tag/v0.1.0

@@ -14,6 +14,7 @@ var DefaultConfigPaths = []string{
 const (
 	FormatTerminal = "terminal"
 	FormatJSON     = "json"
+	FormatRDJSONL  = "rdjsonl"
 	FormatSARIF    = "sarif"
 )
 

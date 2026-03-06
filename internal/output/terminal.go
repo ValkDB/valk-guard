@@ -36,10 +36,8 @@ func (r *TerminalReporter) Report(ctx context.Context, w io.Writer, findings []r
 		}
 
 		if f.SQL != "" {
-			snippet := f.SQL
-			if len(snippet) > 120 {
-				snippet = snippet[:120] + "..."
-			}
+			rendered := renderSQL(f.SQL)
+			snippet := truncateSnippet(rendered.Cleaned, terminalSnippetMaxLen)
 			if _, err := fmt.Fprintf(w, "    %s\n", snippet); err != nil {
 				return err
 			}

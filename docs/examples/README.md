@@ -16,13 +16,13 @@ You can run `valk-guard` against these folders to see the linter in action.
 
 ```bash
 # Scan all examples
-valk-guard scan examples/
+valk-guard scan docs/examples/
 
 # Scan a specific example
-valk-guard scan examples/go_goqu/
+valk-guard scan docs/examples/go_goqu/
 
 # See schema-drift findings
-valk-guard scan examples/schema_drift/
+valk-guard scan docs/examples/schema_drift/
 ```
 
 ## Expected Output

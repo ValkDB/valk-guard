@@ -105,7 +105,18 @@ func (e *Extractor) ExtractModels(ctx context.Context, paths []string) ([]schema
 			}
 
 			table := resolveTableMapping(ts.Name.Name, methodTables, mode, tableProviders)
-			cols := extractColumnsFromStruct(st, fset, mode, columnProviders)
+
+			// In balanced/permissive modes, only infer columns for structs
+			// that show a "seed of intent" — at least one explicit db/gorm
+			// tag or a TableName() method. Without that signal the struct
+			// is likely not a DB model (e.g. Config, APIResponse).
+			effectiveMode := mode
+			if mode != MappingModeStrict && !hasExplicitDBTag(st) {
+				if _, hasMethod := methodTables[ts.Name.Name]; !hasMethod {
+					effectiveMode = MappingModeStrict
+				}
+			}
+			cols := extractColumnsFromStruct(st, fset, effectiveMode, columnProviders)
 			if len(cols) == 0 {
 				return true
 			}
@@ -159,6 +170,28 @@ func normalizeMode(mode MappingMode) MappingMode {
 	default:
 		return MappingModeStrict
 	}
+}
+
+// hasExplicitDBTag returns true if any field in the struct has a db or gorm
+// column tag, indicating this struct is intentionally a DB model.
+func hasExplicitDBTag(st *ast.StructType) bool {
+	for _, field := range st.Fields.List {
+		if field.Tag == nil {
+			continue
+		}
+		tag := parseFieldTag(field.Tag)
+		if dbVal := tag.Get("db"); dbVal != "" && dbVal != "-" {
+			return true
+		}
+		if gormVal := tag.Get("gorm"); gormVal != "" {
+			for _, part := range strings.Split(gormVal, ";") {
+				if strings.HasPrefix(strings.TrimSpace(part), "column:") {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // extractColumnsFromStruct extracts ModelColumn values from struct fields using

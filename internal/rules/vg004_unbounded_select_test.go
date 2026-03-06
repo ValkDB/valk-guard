@@ -45,6 +45,11 @@ func TestUnboundedSelectRule(t *testing.T) {
 			wantCount: 1,
 		},
 		{
+			name:      "parenthesized aggregate without group by",
+			sql:       "SELECT (COUNT(*)) FROM users",
+			wantCount: 0,
+		},
+		{
 			name:      "constant select without table source",
 			sql:       "SELECT 1",
 			wantCount: 0,

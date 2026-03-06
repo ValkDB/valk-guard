@@ -92,7 +92,9 @@ func TestSQLAlchemyScannerDirectiveSuppressionOnSyntheticSQL(t *testing.T) {
 	tmpDir := t.TempDir()
 	pyFile := filepath.Join(tmpDir, "directive.py")
 
-	content := `def run(session, User, Roles):
+	content := `from sqlalchemy.orm import Session
+
+def run(session, User, Roles):
     # valk-guard:disable VG003
     session.query(User).join(Roles).delete()
 `

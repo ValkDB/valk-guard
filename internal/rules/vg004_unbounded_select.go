@@ -82,6 +82,10 @@ func isAggregateProjection(expr string) bool {
 	if expr == "" {
 		return false
 	}
+	// Strip leading parentheses to handle expressions like (COUNT(*)).
+	for strings.HasPrefix(expr, "(") {
+		expr = strings.TrimSpace(expr[1:])
+	}
 	aggregatePrefixes := []string{
 		"count(", "count (",
 		"sum(", "sum (",

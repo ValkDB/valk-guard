@@ -97,14 +97,18 @@ func (s *GoScanner) Scan(ctx context.Context, paths []string) iter.Seq2[SQLState
 				}
 
 				pos := fset.Position(call.Pos())
+				end := fset.Position(call.End())
 				line := pos.Line
 
 				if !yield(SQLStatement{
-					SQL:      sqlArg,
-					File:     path,
-					Line:     line,
-					Engine:   EngineGo,
-					Disabled: DisabledRulesForLine(directives, line),
+					SQL:       sqlArg,
+					File:      path,
+					Line:      line,
+					Column:    pos.Column,
+					EndLine:   end.Line,
+					EndColumn: end.Column,
+					Engine:    EngineGo,
+					Disabled:  DisabledRulesForLine(directives, line),
 				}, nil) {
 					stop = true
 					return false

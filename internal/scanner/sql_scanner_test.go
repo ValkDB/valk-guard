@@ -239,3 +239,44 @@ func TestScanDirectory(t *testing.T) {
 		t.Errorf("expected at least 4 statements from testdata/sql, got %d", len(stmts))
 	}
 }
+
+func TestScanLeadingCommentDoesNotShiftStatementRange(t *testing.T) {
+	s := &RawSQLScanner{}
+
+	tmpDir := t.TempDir()
+	sqlFile := filepath.Join(tmpDir, "complex.sql")
+	content := strings.Repeat("\n", 19) +
+		"-- LEFT JOIN: unknown filter column on joined table (intentional violation).\n" +
+		"SELECT users.id, users.email, orders.status\n" +
+		"FROM users\n" +
+		"LEFT JOIN orders ON orders.user_id = users.id\n" +
+		"WHERE orders.ghost_status = 'pending'\n" +
+		"ORDER BY users.id\n" +
+		"LIMIT 10;"
+	if err := os.WriteFile(sqlFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	stmts, err := Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	if len(stmts) != 1 {
+		t.Fatalf("expected 1 statement, got %d: %+v", len(stmts), stmts)
+	}
+
+	stmt := stmts[0]
+	if stmt.Line != 21 {
+		t.Fatalf("expected statement start line 21, got %d", stmt.Line)
+	}
+	if stmt.EndLine != 26 {
+		t.Fatalf("expected statement end line 26, got %d", stmt.EndLine)
+	}
+	if stmt.EndColumn <= 1 {
+		t.Fatalf("expected end column to be tracked, got %d", stmt.EndColumn)
+	}
+	if !strings.Contains(stmt.SQL, "ghost_status") {
+		t.Fatalf("expected statement SQL to preserve failing predicate, got %q", stmt.SQL)
+	}
+}
