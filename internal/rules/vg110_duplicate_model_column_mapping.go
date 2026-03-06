@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -29,7 +30,7 @@ func (r *DuplicateModelColumnMappingRule) Description() string {
 func (r *DuplicateModelColumnMappingRule) DefaultSeverity() Severity { return SeverityWarning }
 
 // CheckSchema validates each model for duplicate column mappings.
-func (r *DuplicateModelColumnMappingRule) CheckSchema(_ *schema.Snapshot, models []schema.ModelDef) []Finding {
+func (r *DuplicateModelColumnMappingRule) CheckSchema(_ context.Context, _ *schema.Snapshot, models []schema.ModelDef) []Finding {
 	var findings []Finding
 
 	for _, model := range models {

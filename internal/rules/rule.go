@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // Severity represents the severity level of a finding.
 type Severity string
@@ -43,7 +47,7 @@ type Rule interface {
 	DefaultSeverity() Severity
 
 	// Check examines a parsed query and returns any findings.
-	Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding
+	Check(ctx context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding
 }
 
 // NormalizeRange returns a valid 1-based range, falling back to minimal

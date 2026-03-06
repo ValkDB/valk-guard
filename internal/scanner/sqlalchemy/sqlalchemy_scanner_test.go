@@ -215,6 +215,31 @@ func TestSQLAlchemyScannerSkipsFilesWithoutKeywords(t *testing.T) {
 	}
 }
 
+func TestSQLAlchemyScannerExtractsSyntheticSQLWithoutDirectSQLAlchemyImport(t *testing.T) {
+	tmpDir := t.TempDir()
+	pyFile := filepath.Join(tmpDir, "service.py")
+
+	content := `def run(session, User):
+    session.query(User).filter(User.id == 1).all()
+`
+	if err := os.WriteFile(pyFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	if len(stmts) != 1 {
+		t.Fatalf("expected 1 synthetic statement, got %d: %+v", len(stmts), stmts)
+	}
+	if !strings.Contains(stmts[0].SQL, "valk-guard:synthetic sqlalchemy-ast") {
+		t.Fatalf("expected synthetic SQL marker, got %q", stmts[0].SQL)
+	}
+}
+
 func TestSQLAlchemyScannerErrorsOnSyntaxError(t *testing.T) {
 	tmpDir := t.TempDir()
 	pyFile := filepath.Join(tmpDir, "broken.py")

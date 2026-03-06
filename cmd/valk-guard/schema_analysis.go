@@ -76,7 +76,7 @@ func runSchemaDrift(
 		if len(ruleModels) == 0 {
 			continue
 		}
-		ruleFindings := rule.CheckSchema(migrationSnap, ruleModels)
+		ruleFindings := rule.CheckSchema(ctx, migrationSnap, ruleModels)
 		for i := range ruleFindings {
 			ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
 		}
@@ -161,7 +161,7 @@ func runQuerySchemaChecks(
 
 			seenByKey := make(map[queryFindingKeyValue]struct{})
 			for _, snap := range snaps {
-				ruleFindings := rule.CheckQuerySchema(snap, &ps.stmt, ps.parsed)
+				ruleFindings := rule.CheckQuerySchema(ctx, snap, &ps.stmt, ps.parsed)
 				applyStatementRange(ruleFindings, &ps.stmt)
 				for i := range ruleFindings {
 					ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
