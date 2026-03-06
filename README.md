@@ -134,16 +134,16 @@ For schema-drift rules (VG101+), it also reads **ORM model definitions** — Go 
 
 ## How It Compares
 
-| | Valk Guard | sqlfluff | squawk | pganalyze |
+| | Valk Guard | SQL formatters/linters | DB-connected advisors | Schema-only drift checks |
 |---|---|---|---|---|
-| **No DB connection needed** | Yes | Yes | Yes | No |
-| **Scans Go/Python source** | Yes | No | No | No |
-| **ORM-aware (Goqu, SQLAlchemy)** | Yes | No | No | No |
-| **Schema-drift detection** | Yes | No | No | Yes |
-| **CI-native (SARIF, reviewdog)** | Yes | Partial | Yes | Yes |
-| **Fix/auto-correct** | No | Yes | No | No |
-| **Multi-dialect** | PG only | Yes | PG only | PG only |
-| **PostgreSQL parser** | Yes | Multi-dialect | Yes | Yes |
+| **Needs a running database** | No | Usually no | Usually yes | Usually no |
+| **Scans app source (`.go`, `.py`)** | Yes | Rarely | No | Rarely |
+| **Understands ORM/query builders** | Yes | Rarely | No | Sometimes |
+| **Checks schema drift against models** | Yes | Rarely | Sometimes | Yes |
+| **Fits PR review workflows** | Yes | Often | Sometimes | Often |
+| **Auto-fixes SQL** | No | Sometimes | No | No |
+| **Dialect coverage** | PostgreSQL only | Often multi-dialect | Varies | Varies |
+| **Primary value** | SQL + ORM static analysis | SQL style and formatting | Live query/runtime insights | Migration/model consistency |
 
 Valk Guard's niche: **static analysis across SQL + ORM code with schema-drift detection, no infrastructure required.**
 
