@@ -157,26 +157,10 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		return nil, true, err
 	}
 
-	// Sort statements by (File, Line) so that schema is built in deterministic
-	// order regardless of goroutine scheduling in fanOutScanners.
-	slices.SortFunc(sr.sqlStmts, func(a, b scanner.SQLStatement) int {
-		if a.File != b.File {
-			if a.File < b.File {
-				return -1
-			}
-			return 1
-		}
-		return a.Line - b.Line
-	})
-	slices.SortFunc(sr.migrationStmts, func(a, b scanner.SQLStatement) int {
-		if a.File != b.File {
-			if a.File < b.File {
-				return -1
-			}
-			return 1
-		}
-		return a.Line - b.Line
-	})
+	// Sort statements by (File, Line) so schema accumulation stays deterministic
+	// regardless of goroutine scheduling in fanOutScanners.
+	sortStatements(sr.sqlStmts)
+	sortStatements(sr.migrationStmts)
 
 	// Schema-aware phase: build migration snapshot once, then run query-schema
 	// rules and model schema-drift rules. Prefer files under migration-like
@@ -312,9 +296,8 @@ func fanOutScanners(
 	var wg sync.WaitGroup
 
 	for _, sc := range active {
-		sc := sc
 		wg.Add(1)
-		go func() {
+		go func(sc namedScanner) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
@@ -338,7 +321,7 @@ func fanOutScanners(
 			}
 
 			logger.Debug("scanner completed", "scanner", sc.name, "statements", emitted)
-		}()
+		}(sc)
 	}
 
 	go func() {
@@ -347,6 +330,19 @@ func fanOutScanners(
 	}()
 
 	return results
+}
+
+// sortStatements sorts scanned statements deterministically by file and line.
+func sortStatements(stmts []scanner.SQLStatement) {
+	slices.SortFunc(stmts, func(a, b scanner.SQLStatement) int {
+		if a.File != b.File {
+			if a.File < b.File {
+				return -1
+			}
+			return 1
+		}
+		return a.Line - b.Line
+	})
 }
 
 // collectScannerInputs recursively walks the provided paths and classifies

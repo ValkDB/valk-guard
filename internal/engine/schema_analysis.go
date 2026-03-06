@@ -255,6 +255,8 @@ func modelsForRule(models []schema.ModelDef, cfg *config.Config, ruleID string, 
 	for _, model := range models {
 		engines, ok := sourceEngines[model.Source]
 		if !ok || len(engines) == 0 {
+			// Ignore model sources without an explicit engine binding so newly
+			// added sources do not silently opt into every schema rule by default.
 			continue
 		}
 
