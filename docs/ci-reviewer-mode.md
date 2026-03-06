@@ -86,21 +86,23 @@ jobs:
         uses: tj-actions/changed-files@v45
         with:
           separator: "\n"
+          safe_output: false
           files: |
             **/*.sql
             **/*.go
             **/*.py
 
       - uses: reviewdog/action-setup@v1
+        if: steps.changed.outputs.any_changed == 'true'
 
       - name: Run valk-guard (reviewdog)
         if: steps.changed.outputs.any_changed == 'true'
         id: scan_reviewdog
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.all_changed_files }}
         run: |
-          # tj-actions/changed-files with separator: '\n' writes one path per line.
-          # mapfile -t reads that safely, handling spaces in filenames.
-          mapfile -t files < <(printf '%s' "${{ steps.changed.outputs.all_changed_files }}")
-          valk-guard scan "${files[@]}" --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
+          mapfile -t files < <(printf '%s' "$CHANGED_FILES")
+          valk-guard scan "${files[@]}" --config .valk-guard.yaml --format rdjsonl > valk-guard.rdjsonl || exit_code=$?
           if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
         continue-on-error: false
 
@@ -119,9 +121,11 @@ jobs:
 
       - name: Run valk-guard (JSON artifact)
         if: steps.changed.outputs.any_changed == 'true'
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.all_changed_files }}
         run: |
-          mapfile -t files < <(printf '%s' "${{ steps.changed.outputs.all_changed_files }}")
-          valk-guard scan "${files[@]}" --format json > valk-guard.json || exit_code=$?
+          mapfile -t files < <(printf '%s' "$CHANGED_FILES")
+          valk-guard scan "${files[@]}" --config .valk-guard.yaml --format json > valk-guard.json || exit_code=$?
           if [ "${exit_code:-0}" -gt 1 ]; then exit $exit_code; fi
 
       - name: Upload JSON findings artifact
@@ -133,9 +137,11 @@ jobs:
 
       - name: Run valk-guard (SARIF)
         if: steps.changed.outputs.any_changed == 'true'
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.all_changed_files }}
         run: |
-          mapfile -t files < <(printf '%s' "${{ steps.changed.outputs.all_changed_files }}")
-          valk-guard scan "${files[@]}" --format sarif --output valk-guard.sarif
+          mapfile -t files < <(printf '%s' "$CHANGED_FILES")
+          valk-guard scan "${files[@]}" --config .valk-guard.yaml --format sarif --output valk-guard.sarif
 
       - name: Upload SARIF to code scanning
         if: steps.changed.outputs.any_changed == 'true'
