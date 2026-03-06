@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 What It Does
+## What It Does
 
 Valk Guard acts as a static gatekeeper for your database. It scans your codebase (Go, Python, SQL), extracts database interactions, parses them using a formal PostgreSQL grammar, and runs them against a suite of performance-focused rules.
 
@@ -16,7 +16,7 @@ Valk Guard acts as a static gatekeeper for your database. It scans your codebase
 
 ---
 
-## 🏗 Technical Architecture
+## Technical Architecture
 
 Valk Guard is built for speed and accuracy, leveraging Go 1.25+ features like iterators for memory-efficient streaming.
 
@@ -41,12 +41,13 @@ graph TD
         J -->|Terminal| K[Human Readable]
         J -->|JSON| L[Machine Readable]
         J -->|SARIF| M[GitHub Code Scanning]
+        J -->|rdjsonl| N[reviewdog PR Review]
     end
 ```
 
 ---
 
-## 🛠 Supported Scanners
+## Supported Scanners
 
 | Scanner | Method | Description |
 | :--- | :--- | :--- |
@@ -57,9 +58,11 @@ graph TD
 
 ---
 
-## 📋 Built-in Rules
+## Built-in Rules
 
-Valk Guard ships with a set of "production-first" rules:
+Valk Guard ships with 19 production-first rules. See [docs/rules.md](rules.md) for the full reference.
+
+### Query Rules (VG001-VG008)
 
 | ID | Name | Severity | Catch |
 | :--- | :--- | :--- | :--- |
@@ -72,9 +75,30 @@ Valk Guard ships with a set of "production-first" rules:
 | **VG007** | `destructive-ddl` | Error | `DROP` or `TRUNCATE` commands in application code. |
 | **VG008** | `non-concurrent-index` | Warning | Creating indexes without `CONCURRENTLY`. |
 
+### Schema-Drift Rules (VG101-VG104, VG109-VG111)
+
+| ID | Name | Severity | Catch |
+| :--- | :--- | :--- | :--- |
+| **VG101** | `dropped-column` | Error | Model field maps to a column absent from migration DDL. |
+| **VG102** | `missing-not-null` | Warning | NOT NULL column (no default) missing from model. |
+| **VG103** | `type-mismatch` | Warning | Model type doesn't match DDL column type. |
+| **VG104** | `table-not-found` | Error | Explicit model table mapping has no CREATE TABLE. |
+| **VG109** | `orphan-migration-table` | Warning | Migration table has no matching model. |
+| **VG110** | `duplicate-model-column-mapping` | Warning | Model maps the same DB column multiple times. |
+| **VG111** | `go-inferred-table-name-risk` | Warning | Go model uses inferred table name without explicit mapping. |
+
+### Query-Schema Rules (VG105-VG108)
+
+| ID | Name | Severity | Catch |
+| :--- | :--- | :--- | :--- |
+| **VG105** | `unknown-projection-column` | Error | SELECT projection references a column not in schema. |
+| **VG106** | `unknown-filter-column` | Error | WHERE/JOIN/GROUP BY/ORDER BY references unknown column. |
+| **VG107** | `unknown-table-reference` | Error | FROM/JOIN references a table not in schema. |
+| **VG108** | `ambiguous-unqualified-column` | Warning | Unqualified column is present in multiple joined tables. |
+
 ---
 
-## 🔄 CI/CD Workflow
+## CI/CD Workflow
 
 Valk Guard is designed to be a "blocking" step in your CI pipeline.
 
@@ -88,7 +112,7 @@ sequenceDiagram
     Dev->>Git: Push Pull Request
     Git->>CI: Trigger "DB Lint" Job
     CI->>CI: valk-guard scan . --format sarif
-    
+
     alt Findings Detected
         CI->>Git: Upload SARIF Report
         Git->>Dev: Show inline PR Annotations
@@ -100,7 +124,7 @@ sequenceDiagram
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Control Valk Guard via a `.valk-guard.yaml` file:
 

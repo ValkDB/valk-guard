@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -50,6 +51,25 @@ func WriteTempScript(content []byte) (scriptPath string, cleanup func(), err err
 func ExecScript(ctx context.Context, scriptPath string, files []string) ([]byte, error) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		return nil, fmt.Errorf("python3 not found; Python 3 is required for scanning .py files")
+	}
+
+	// Verify Python version is 3.6+ (minimum for ast features used by embedded scripts).
+	verOut, verErr := exec.CommandContext(ctx, "python3", "-c", "import sys; print(sys.version_info[:2])").Output() //nolint:gosec // fixed command
+	if verErr == nil {
+		ver := strings.TrimSpace(string(verOut))
+		ver = strings.Trim(ver, "()")
+		parts := strings.SplitN(ver, ",", 2)
+		if len(parts) == 2 {
+			major := strings.TrimSpace(parts[0])
+			minor := strings.TrimSpace(parts[1])
+			maj, majErr := strconv.Atoi(major)
+			mnr, minErr := strconv.Atoi(minor)
+			if majErr == nil && minErr == nil {
+				if maj != 3 || mnr < 6 {
+					return nil, fmt.Errorf("python3 version 3.6+ required for .py scanning (found %d.%d)", maj, mnr)
+				}
+			}
+		}
 	}
 
 	// Build command: python3 <script> file1.py file2.py ...

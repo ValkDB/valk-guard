@@ -61,7 +61,7 @@ func (r *RDJSONLReporter) Report(ctx context.Context, w io.Writer, findings []ru
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := enc.Encode(buildRDJSONLDiagnostic(f)); err != nil {
+		if err := enc.Encode(buildRDJSONLDiagnostic(&f)); err != nil {
 			return err
 		}
 	}
@@ -70,7 +70,7 @@ func (r *RDJSONLReporter) Report(ctx context.Context, w io.Writer, findings []ru
 
 // buildRDJSONLDiagnostic converts a single finding into the reviewdog rdjsonl
 // diagnostic shape, preserving multiline ranges when available.
-func buildRDJSONLDiagnostic(f rules.Finding) rdjsonlDiagnostic {
+func buildRDJSONLDiagnostic(f *rules.Finding) rdjsonlDiagnostic {
 	start, end := reviewdogRange(f)
 
 	return rdjsonlDiagnostic{
@@ -93,31 +93,8 @@ func buildRDJSONLDiagnostic(f rules.Finding) rdjsonlDiagnostic {
 
 // reviewdogRange returns a valid 1-based range for reviewdog, falling back to
 // a minimal single-column span when the finding does not provide an end range.
-func reviewdogRange(f rules.Finding) (rdjsonlPosition, rdjsonlPosition) {
-	line := f.Line
-	if line < 1 {
-		line = 1
-	}
-
-	column := f.Column
-	if column < 1 {
-		column = 1
-	}
-
-	endLine := f.EndLine
-	if endLine < line {
-		endLine = line
-	}
-
-	endColumn := f.EndColumn
-	if endColumn < 1 {
-		if endLine > line {
-			endColumn = 1
-		} else {
-			endColumn = column + 1
-		}
-	}
-
+func reviewdogRange(f *rules.Finding) (start, end rdjsonlPosition) {
+	line, column, endLine, endColumn := rules.NormalizeRange(f.Line, f.Column, f.EndLine, f.EndColumn)
 	return rdjsonlPosition{Line: line, Column: column}, rdjsonlPosition{Line: endLine, Column: endColumn}
 }
 
@@ -135,7 +112,7 @@ func reviewdogSeverity(sev rules.Severity) string {
 
 // reviewdogMessage builds a compact review comment message with a cleaned query
 // preview and an origin hint for synthetic builder-derived SQL.
-func reviewdogMessage(f rules.Finding) string {
+func reviewdogMessage(f *rules.Finding) string {
 	rendered := renderSQL(f.SQL)
 	parts := []string{f.RuleID + ": " + f.Message}
 

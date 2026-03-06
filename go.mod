@@ -3,7 +3,6 @@ module github.com/valkdb/valk-guard
 go 1.25.6
 
 require (
-	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/spf13/cobra v1.10.2
 	github.com/valkdb/postgresparser v1.1.5
 	gopkg.in/yaml.v3 v3.0.1

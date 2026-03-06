@@ -32,7 +32,7 @@ make check        # all of the above
 2. Register it in `internal/rules/registry.go` via `DefaultRegistry()`
 3. Add tests in `internal/rules/vgXXX_rule_name_test.go`
 4. Add a test fixture in `testdata/` if helpful
-5. Document the rule in README.md
+5. Document the rule in [`docs/rules.md`](docs/rules.md)
 
 Detailed guide: see [`docs/adding-rules.md`](docs/adding-rules.md).
 

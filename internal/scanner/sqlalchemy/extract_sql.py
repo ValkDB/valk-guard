@@ -22,6 +22,19 @@ FILTER_METHODS = {"filter", "filter_by", "where"}
 FOR_UPDATE_METHODS = {"with_for_update"}
 
 
+def _has_sqlalchemy_import(tree):
+    """Check if the file imports sqlalchemy in any form."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name and ("sqlalchemy" in alias.name):
+                    return True
+        if isinstance(node, ast.ImportFrom):
+            if node.module and ("sqlalchemy" in node.module):
+                return True
+    return False
+
+
 def extract_sql_from_file(filepath):
     """Parse a Python file and extract raw and synthetic SQL strings."""
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
@@ -29,13 +42,16 @@ def extract_sql_from_file(filepath):
 
     tree = ast.parse(source, filename=filepath)
 
+    has_sa = _has_sqlalchemy_import(tree)
+
     results = []
     seen = set()
     handled_text_ids = set()
     parents = _build_parent_map(tree)
 
     _extract_raw_execute_text(tree, filepath, handled_text_ids, seen, results)
-    _extract_synthetic_chain_sql(tree, parents, filepath, seen, results)
+    if has_sa:
+        _extract_synthetic_chain_sql(tree, parents, filepath, seen, results)
 
     results.sort(key=lambda r: (r["line"], r.get("column", 1), r["sql"]))
     return results

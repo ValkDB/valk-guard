@@ -47,6 +47,7 @@ func meaningfulSQL(sql string) string {
 	inBlockComment := false
 	out := make([]string, 0, len(lines))
 
+nextLine:
 	for _, line := range lines {
 		if !started {
 			trimmed := strings.TrimSpace(line)
@@ -54,34 +55,32 @@ func meaningfulSQL(sql string) string {
 			for {
 				switch {
 				case trimmed == "":
-					goto nextLine
+					continue nextLine
 				case inBlockComment:
 					end := strings.Index(trimmed, "*/")
 					if end < 0 {
-						goto nextLine
+						continue nextLine
 					}
 					trimmed = strings.TrimSpace(trimmed[end+2:])
 					inBlockComment = false
 				case strings.HasPrefix(trimmed, "--"):
-					goto nextLine
+					continue nextLine
 				case strings.HasPrefix(trimmed, "/*"):
 					end := strings.Index(trimmed[2:], "*/")
 					if end < 0 {
 						inBlockComment = true
-						goto nextLine
+						continue nextLine
 					}
 					trimmed = strings.TrimSpace(trimmed[end+4:])
 				default:
 					started = true
 					out = append(out, trimmed)
-					goto nextLine
+					continue nextLine
 				}
 			}
 		} else {
 			out = append(out, strings.TrimRight(line, " \t"))
 		}
-
-	nextLine:
 	}
 
 	return strings.TrimSpace(strings.Join(out, "\n"))

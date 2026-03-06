@@ -12,7 +12,7 @@ package sqlalchemy
 
 import (
 	"context"
-	"embed"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"iter"
@@ -25,7 +25,7 @@ import (
 )
 
 //go:embed extract_sql.py
-var extractScript embed.FS
+var extractScript []byte
 
 // sqlalchemyMarkers are the quick-reject keywords used to determine whether a
 // .py file likely contains SQLAlchemy or ORM query-builder usage.
@@ -131,12 +131,7 @@ type pyResult struct {
 // and returns the extracted SQL statements. All files are passed in a single
 // subprocess invocation to amortize the ~20ms Python startup cost.
 func runPythonExtractor(parent context.Context, files []string) ([]pyResult, error) {
-	scriptData, err := extractScript.ReadFile("extract_sql.py")
-	if err != nil {
-		return nil, err
-	}
-
-	scriptPath, cleanup, err := pyrunner.WriteTempScript(scriptData)
+	scriptPath, cleanup, err := pyrunner.WriteTempScript(extractScript)
 	if err != nil {
 		return nil, err
 	}

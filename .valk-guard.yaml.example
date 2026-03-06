@@ -1,7 +1,7 @@
 # valk-guard configuration
 # Copy to .valk-guard.yaml and customize.
 
-# Output format: terminal, json, sarif
+# Output format: terminal, json, sarif, rdjsonl
 format: terminal
 
 # File patterns to exclude from scanning

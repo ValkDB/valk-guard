@@ -6,6 +6,11 @@ GitHub reviewer mode is optional and can post inline pull-request review comment
 The cleanest path is `--format rdjsonl` directly into reviewdog. You can still
 export raw findings as `json` for downstream tooling when needed.
 
+For copy-paste workflows, use the dedicated docs:
+
+- Full-repo PR scan: [`docs/ci-example-full-scan.md`](ci-example-full-scan.md)
+- Changed-files-only PR scan: [`docs/ci-example-changed-files.md`](ci-example-changed-files.md)
+
 ## Required Permissions
 
 ```yaml
