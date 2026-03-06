@@ -2,6 +2,18 @@
 
 Valk Guard supports multiple suppression levels so teams can tune signal vs noise without disabling the tool.
 
+## Live Demo
+
+A complete working suppression showcase (inline + global) lives in:
+
+- https://github.com/ValkDB/valk-guard-example/pull/6
+
+That PR includes:
+
+- query-level rule-specific suppression (`valk-guard:disable VG001`)
+- query-level disable-all suppression (`valk-guard:disable`)
+- global rule disable config (`rules.VG001.enabled: false`)
+
 ## 1) Per-File Exclusions
 
 Use `exclude` in `.valk-guard.yaml` to skip whole paths (for example generated files or migrations):

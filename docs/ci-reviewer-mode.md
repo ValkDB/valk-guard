@@ -58,6 +58,10 @@ permissions:
   pull-requests: write
   security-events: write
 
+env:
+  # Pin in CI for stable behavior and repeatable output processing.
+  VALK_GUARD_INSTALL_REF: vX.Y.Z
+
 jobs:
   scan:
     runs-on: ubuntu-latest
@@ -70,7 +74,7 @@ jobs:
           go-version: "1.25.6"
 
       - name: Install valk-guard
-        run: go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
+        run: go install github.com/valkdb/valk-guard/cmd/valk-guard@${VALK_GUARD_INSTALL_REF}
 
       - name: Collect changed files
         id: changed

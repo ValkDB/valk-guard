@@ -38,6 +38,25 @@ That's it. Zero config required — all rules are enabled by default.
 
 ---
 
+## Documentation Map
+
+- Rule behavior and schema-aware internals: [`docs/schema-drift.md`](docs/schema-drift.md)
+- Suppression patterns (inline, per-rule, exclusions): [`docs/suppression.md`](docs/suppression.md)
+- CI reviewer workflow and non-blocking mode: [`docs/ci-reviewer-mode.md`](docs/ci-reviewer-mode.md)
+- Output contracts (`terminal`, `json`, `rdjsonl`, `sarif`): [`docs/output-formats.md`](docs/output-formats.md)
+
+## End-to-End Example PRs
+
+Live demos in [`ValkDB/valk-guard-example`](https://github.com/ValkDB/valk-guard-example):
+
+- Dist 1 (`VG001`-`VG003`): https://github.com/ValkDB/valk-guard-example/pull/2
+- Dist 2 (`VG004`-`VG006`): https://github.com/ValkDB/valk-guard-example/pull/3
+- Dist 3 (`VG007`, `VG008`, `VG101`-`VG105`): https://github.com/ValkDB/valk-guard-example/pull/4
+- Dist 4 (`VG106`-`VG111`): https://github.com/ValkDB/valk-guard-example/pull/5
+- Suppression showcase (inline + global): https://github.com/ValkDB/valk-guard-example/pull/6
+
+---
+
 ## What It Catches
 
 Valk Guard ships with **19 rules** across three categories:
@@ -97,6 +116,20 @@ Grab a pre-built binary from [GitHub Releases](https://github.com/ValkDB/valk-gu
 ```bash
 go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
 ```
+
+### Install in CI (Recommended: Pin Version)
+
+For reproducible CI output and stable downstream processing, pin a release tag (or commit):
+
+```bash
+go install github.com/valkdb/valk-guard/cmd/valk-guard@vX.Y.Z
+```
+
+Why pin in CI:
+
+- avoids unexpected behavior changes from `@latest`
+- keeps output processing steps (for example jq/reviewdog conversion) stable
+- makes build and review results reproducible across reruns
 
 ### Build From Source
 
@@ -248,38 +281,67 @@ Output format reference: [`docs/output-formats.md`](docs/output-formats.md)
 ## How It Works
 
 ```mermaid
-graph TD
-    A[Source Files] --> B{File Type}
-    B -->|.sql| C[Raw SQL Scanner]
-    B -->|.go| D[Go AST Scanner]
-    B -->|.go goqu| E[Goqu Scanner]
-    B -->|.py| F[SQLAlchemy Scanner]
+flowchart LR
+  subgraph S1["1. Source Inputs"]
+    A1[".sql files"]
+    A2["Go code"]
+    A3["Goqu usage"]
+    A4["Python SQLAlchemy"]
+  end
 
-    C --> G[SQL Statements + file/line mapping]
-    D --> G
-    E --> G
-    F --> G
+  subgraph S2["2. Statement Extraction"]
+    B1["Raw SQL Scanner"]
+    B2["Go AST Scanner"]
+    B3["Goqu Scanner"]
+    B4["SQLAlchemy Scanner"]
+    B5["Statements with file/line mapping"]
+  end
 
-    G --> H[postgresparser]
-    H --> I[Rule Engine VG001-VG008]
-    H -->|Table and column usage| Q[Query-Schema Rules VG105-VG108]
+  subgraph S3["3. Parsing and Schema Context"]
+    C1["postgresparser"]
+    C2["DDL -> Schema Snapshot"]
+    C3["Go Model Extractor"]
+    C4["Python Model Extractor"]
+    C5["Model Snapshots"]
+  end
 
-    D -->|db/gorm tags plus optional inference| N[Go Model Extractor]
-    F -->|__tablename__| O[Python Model Extractor]
-    N --> P[Model Schema Rules VG101-VG104 and VG109-VG111]
-    O --> P
-    H -->|DDL actions| S[Schema Snapshot]
-    N --> T[Model Snapshots]
-    O --> T
-    S --> P
-    S --> Q
-    T --> Q
-    Q --> J
-    P --> J
-    I --> J{Output Format}
-    J -->|terminal| K[Human Readable]
-    J -->|json| L[Machine Readable]
-    J -->|sarif| M[GitHub Code Scanning]
+  subgraph S4["4. Rule Evaluation"]
+    D1["Query Rules VG001-VG008"]
+    D2["Query-Schema Rules VG105-VG108"]
+    D3["Model Schema Rules VG101-VG104 and VG109-VG111"]
+  end
+
+  subgraph S5["5. Output"]
+    E0["Findings"]
+    E1["terminal"]
+    E2["json"]
+    E3["sarif"]
+  end
+
+  A1 --> B1 --> B5
+  A2 --> B2 --> B5
+  A3 --> B3 --> B5
+  A4 --> B4 --> B5
+
+  B5 --> C1
+  C1 --> D1
+  C1 --> C2
+  C1 --> D2
+
+  A2 --> C3 --> C5
+  A4 --> C4 --> C5
+
+  C2 --> D2
+  C5 --> D2
+  C2 --> D3
+  C5 --> D3
+
+  D1 --> E0
+  D2 --> E0
+  D3 --> E0
+  E0 --> E1
+  E0 --> E2
+  E0 --> E3
 ```
 
 ---
