@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestLikeLeadingWildcardRule validates leading wildcard LIKE/ILIKE detection.
 func TestLikeLeadingWildcardRule(t *testing.T) {

@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestUnboundedSelectRule validates SELECT without LIMIT/FETCH detection.
 func TestUnboundedSelectRule(t *testing.T) {

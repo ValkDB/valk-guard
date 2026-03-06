@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // SelectForUpdateNoWhereRule detects SELECT FOR UPDATE without WHERE.
 type SelectForUpdateNoWhereRule struct{}
