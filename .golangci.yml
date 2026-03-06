@@ -12,6 +12,7 @@ linters:
     - nilerr
     - prealloc
     - revive
+    - staticcheck
     - unconvert
   settings:
     errorlint:
