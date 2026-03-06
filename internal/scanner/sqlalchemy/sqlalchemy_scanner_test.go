@@ -119,6 +119,68 @@ def run(session, User, Roles):
 	}
 }
 
+func TestSQLAlchemyScannerResolvesTablename(t *testing.T) {
+	tmpDir := t.TempDir()
+	pyFile := filepath.Join(tmpDir, "models.py")
+
+	content := `from sqlalchemy import create_engine, select
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy import String, Boolean, ForeignKey
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255))
+    active: Mapped[bool] = mapped_column(Boolean)
+
+class Order(Base):
+    __tablename__ = "orders"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+
+engine = create_engine("postgresql://localhost/example")
+session = sessionmaker(bind=engine)()
+
+session.query(User.id, User.email).filter(User.active == True).limit(10).all()
+session.query(User).join(Order, Order.user_id == User.id).filter(User.active == True).limit(50).all()
+`
+	if err := os.WriteFile(pyFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	// Verify __tablename__ is used instead of class name
+	for _, stmt := range stmts {
+		if !strings.Contains(stmt.SQL, "valk-guard:synthetic") {
+			continue
+		}
+		if strings.Contains(stmt.SQL, `"User"`) {
+			t.Errorf("synthetic SQL should use __tablename__ 'users' not class name 'User': %s", stmt.SQL)
+		}
+		if strings.Contains(stmt.SQL, `"Order"`) {
+			t.Errorf("synthetic SQL should use __tablename__ 'orders' not class name 'Order': %s", stmt.SQL)
+		}
+	}
+
+	if !scannertest.HasSQLContaining(stmts, `"users"."id"`) {
+		t.Errorf("expected resolved table name 'users' in column references, got %+v", stmts)
+	}
+	if !scannertest.HasSQLContaining(stmts, `FROM "users"`) {
+		t.Errorf("expected resolved table name 'users' in FROM clause, got %+v", stmts)
+	}
+	if !scannertest.HasSQLContaining(stmts, `JOIN "orders" ON 1=1`) {
+		t.Errorf("expected resolved table name 'orders' in JOIN clause, got %+v", stmts)
+	}
+}
+
 func TestSQLAlchemyScannerSkipsNonPython(t *testing.T) {
 	tmpDir := t.TempDir()
 	txtFile := filepath.Join(tmpDir, "not_python.txt")

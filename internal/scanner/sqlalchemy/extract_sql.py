@@ -35,6 +35,23 @@ def _has_sqlalchemy_import(tree):
     return False
 
 
+def _build_tablename_map(tree):
+    """Build a mapping of Python class names to their __tablename__ values."""
+    mapping = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.Assign):
+                continue
+            for target in item.targets:
+                if isinstance(target, ast.Name) and target.id == "__tablename__":
+                    val = _get_string_value(item.value)
+                    if val:
+                        mapping[node.name] = val
+    return mapping
+
+
 def extract_sql_from_file(filepath):
     """Parse a Python file and extract raw and synthetic SQL strings."""
     with open(filepath, "r", encoding="utf-8", errors="replace") as f:
@@ -51,7 +68,8 @@ def extract_sql_from_file(filepath):
 
     _extract_raw_execute_text(tree, filepath, handled_text_ids, seen, results)
     if has_sa:
-        _extract_synthetic_chain_sql(tree, parents, filepath, seen, results)
+        tablename_map = _build_tablename_map(tree)
+        _extract_synthetic_chain_sql(tree, parents, filepath, seen, results, tablename_map)
 
     results.sort(key=lambda r: (r["line"], r.get("column", 1), r["sql"]))
     return results
@@ -91,7 +109,7 @@ def _extract_raw_execute_text(tree, filepath, handled_text_ids, seen, results):
             _try_standalone_text(node.value, filepath, handled_text_ids, seen, results)
 
 
-def _extract_synthetic_chain_sql(tree, parents, filepath, seen, results):
+def _extract_synthetic_chain_sql(tree, parents, filepath, seen, results, tablename_map):
     """Extract synthetic SQL by analyzing SQLAlchemy method chains."""
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -99,7 +117,7 @@ def _extract_synthetic_chain_sql(tree, parents, filepath, seen, results):
         if _is_chained_subcall(node, parents):
             continue
 
-        synthetic = _synthetic_from_chain(node)
+        synthetic = _synthetic_from_chain(node, tablename_map)
         if not synthetic:
             continue
 
@@ -112,7 +130,7 @@ def _extract_synthetic_chain_sql(tree, parents, filepath, seen, results):
         )
 
 
-def _synthetic_from_chain(node):
+def _synthetic_from_chain(node, tablename_map):
     """Return synthetic SQL for supported SQLAlchemy method chains."""
     chain = _flatten_call_chain(node)
     if not chain:
@@ -120,16 +138,16 @@ def _synthetic_from_chain(node):
 
     root = chain[0]
     if root["kind"] == "method" and root["name"] == "query":
-        return _synthesize_query_chain(chain)
+        return _synthesize_query_chain(chain, tablename_map)
     if root["kind"] == "func" and root["name"] == "select":
-        return _synthesize_select_chain(chain)
+        return _synthesize_select_chain(chain, tablename_map)
     return None
 
 
-def _synthesize_query_chain(chain):
+def _synthesize_query_chain(chain, tablename_map):
     """Synthesize SQL from session.query(...) style chains."""
     root = chain[0]
-    base_table, columns = _projection_from_query_root(root["args"])
+    base_table, columns = _projection_from_query_root(root["args"], tablename_map)
 
     op_name, op_index = _operation_from_chain(chain)
     end = op_index if op_index is not None else len(chain)
@@ -145,14 +163,14 @@ def _synthesize_query_chain(chain):
     for link in chain[1:end]:
         method = link["name"].lower()
         if method in JOIN_METHODS:
-            table = _table_name_from_expr(_first_arg(link["args"]), "synthetic_join")
+            table = _table_name_from_expr(_first_arg(link["args"]), "synthetic_join", tablename_map)
             joins.append(_join_clause(method, table))
             join_tables.append(table)
             continue
 
         if method in FILTER_METHODS:
             has_filter = True
-            conds = _predicates_from_filter_call(method, link["args"], link["keywords"])
+            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map)
             if not conds:
                 conds = ["1=1"]
             predicates.extend(conds)
@@ -183,10 +201,10 @@ def _synthesize_query_chain(chain):
     )
 
 
-def _synthesize_select_chain(chain):
+def _synthesize_select_chain(chain, tablename_map):
     """Synthesize SQL from select(...) style chains."""
     root = chain[0]
-    base_table, columns = _projection_from_select_root(root["args"])
+    base_table, columns = _projection_from_select_root(root["args"], tablename_map)
 
     joins = []
     predicates = []
@@ -198,13 +216,13 @@ def _synthesize_select_chain(chain):
     for link in chain[1:]:
         method = link["name"].lower()
         if method in JOIN_METHODS:
-            table = _table_name_from_expr(_first_arg(link["args"]), "synthetic_join")
+            table = _table_name_from_expr(_first_arg(link["args"]), "synthetic_join", tablename_map)
             joins.append(_join_clause(method, table))
             continue
 
         if method in FILTER_METHODS:
             has_filter = True
-            conds = _predicates_from_filter_call(method, link["args"], link["keywords"])
+            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map)
             if not conds:
                 conds = ["1=1"]
             predicates.extend(conds)
@@ -230,15 +248,15 @@ def _synthesize_select_chain(chain):
     )
 
 
-def _projection_from_query_root(args):
+def _projection_from_query_root(args, tablename_map):
     """Derive SELECT projection and base table from query(...) root args."""
     if not args:
         return "synthetic_model", ["*"]
 
     if len(args) == 1 and _is_model_expr(args[0]):
-        return _table_name_from_expr(args[0], "synthetic_model"), ["*"]
+        return _table_name_from_expr(args[0], "synthetic_model", tablename_map), ["*"]
 
-    columns = [_column_name_from_expr(arg, "") for arg in args]
+    columns = [_column_name_from_expr(arg, "", tablename_map) for arg in args]
     columns = [col for col in columns if col]
     if not columns:
         return "synthetic_model", ["*"]
@@ -247,15 +265,15 @@ def _projection_from_query_root(args):
     return base_table, columns
 
 
-def _projection_from_select_root(args):
+def _projection_from_select_root(args, tablename_map):
     """Derive SELECT projection and base table from select(...) root args."""
     if not args:
         return "synthetic_model", ["*"]
 
     if len(args) == 1 and _is_model_expr(args[0]):
-        return _table_name_from_expr(args[0], "synthetic_model"), ["*"]
+        return _table_name_from_expr(args[0], "synthetic_model", tablename_map), ["*"]
 
-    columns = [_column_name_from_expr(arg, "") for arg in args]
+    columns = [_column_name_from_expr(arg, "", tablename_map) for arg in args]
     columns = [col for col in columns if col]
     if not columns:
         return "synthetic_model", ["*"]
@@ -311,7 +329,7 @@ def _join_clause(method, table):
     return f"{join_type} {table} ON 1=1"
 
 
-def _predicates_from_filter_call(method, args, keywords):
+def _predicates_from_filter_call(method, args, keywords, tablename_map):
     predicates = []
 
     if method == "filter_by":
@@ -322,14 +340,14 @@ def _predicates_from_filter_call(method, args, keywords):
             predicates.append(f"{col} = {_sql_value(kw.value)}")
 
     for arg in args:
-        pred = _predicate_from_expr(arg)
+        pred = _predicate_from_expr(arg, tablename_map)
         if pred:
             predicates.append(pred)
 
     return predicates
 
 
-def _predicate_from_expr(node):
+def _predicate_from_expr(node, tablename_map):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Name) and node.func.id == "text":
             sql = _get_first_string_arg(node)
@@ -338,7 +356,7 @@ def _predicate_from_expr(node):
 
         if isinstance(node.func, ast.Attribute):
             method = node.func.attr.lower()
-            col = _column_name_from_expr(node.func.value, "synthetic_col")
+            col = _column_name_from_expr(node.func.value, "synthetic_col", tablename_map)
 
             if method == "like":
                 return f"{col} LIKE {_sql_value(_first_arg(node.args))}"
@@ -352,7 +370,7 @@ def _predicate_from_expr(node):
                 return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '%', '')}"
 
     if isinstance(node, ast.Compare):
-        left = _column_name_from_expr(node.left, "synthetic_col")
+        left = _column_name_from_expr(node.left, "synthetic_col", tablename_map)
         right = _sql_value(_first_arg(node.comparators))
         if not node.ops:
             return None
@@ -361,7 +379,7 @@ def _predicate_from_expr(node):
             return f"{left} {op} {right}"
 
     if isinstance(node, ast.BoolOp):
-        pieces = [_predicate_from_expr(v) for v in node.values]
+        pieces = [_predicate_from_expr(v, tablename_map) for v in node.values]
         pieces = [p for p in pieces if p]
         if not pieces:
             return None
@@ -399,13 +417,18 @@ def _wrapped_like_value(node, prefix, suffix):
     return "'" + prefix + s + suffix + "'"
 
 
-def _table_name_from_expr(node, fallback):
+def _table_name_from_expr(node, fallback, tablename_map=None):
     if isinstance(node, ast.Name):
-        return _safe_ident(node.id, fallback)
+        name = node.id
+        if tablename_map and name in tablename_map:
+            name = tablename_map[name]
+        return _safe_ident(name, fallback)
 
     if isinstance(node, ast.Attribute):
         dotted = _attribute_to_dotted(node)
         tail = dotted.split(".")[-1] if dotted else ""
+        if tablename_map and tail in tablename_map:
+            tail = tablename_map[tail]
         return _safe_ident(tail, fallback)
 
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -414,17 +437,23 @@ def _table_name_from_expr(node, fallback):
     if isinstance(node, ast.Call):
         # Handle wrappers like aliased(User)
         if node.args:
-            return _table_name_from_expr(node.args[0], fallback)
+            return _table_name_from_expr(node.args[0], fallback, tablename_map)
 
     return fallback
 
 
-def _column_name_from_expr(node, fallback):
+def _column_name_from_expr(node, fallback, tablename_map=None):
     if isinstance(node, ast.Name):
         return _safe_ident(node.id, fallback)
 
     if isinstance(node, ast.Attribute):
-        return _safe_ident(_attribute_to_dotted(node), fallback)
+        dotted = _attribute_to_dotted(node)
+        if tablename_map and dotted:
+            parts = dotted.split(".")
+            if parts[0] in tablename_map:
+                parts[0] = tablename_map[parts[0]]
+            dotted = ".".join(parts)
+        return _safe_ident(dotted, fallback)
 
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return _safe_ident(node.value, fallback)
@@ -432,9 +461,9 @@ def _column_name_from_expr(node, fallback):
     if isinstance(node, ast.Call):
         # Handle wrappers such as func.lower(User.email)
         if isinstance(node.func, ast.Attribute):
-            return _column_name_from_expr(node.func.value, fallback)
+            return _column_name_from_expr(node.func.value, fallback, tablename_map)
         if node.args:
-            return _column_name_from_expr(node.args[0], fallback)
+            return _column_name_from_expr(node.args[0], fallback, tablename_map)
 
     return fallback
 
