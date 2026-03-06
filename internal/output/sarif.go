@@ -96,6 +96,8 @@ type sarifArtifactLocation struct {
 type sarifRegion struct {
 	StartLine   int `json:"startLine"`
 	StartColumn int `json:"startColumn,omitempty"`
+	EndLine     int `json:"endLine,omitempty"`
+	EndColumn   int `json:"endColumn,omitempty"`
 }
 
 // SARIFReporter outputs findings in SARIF 2.1.0 format.
@@ -232,7 +234,12 @@ func buildSARIFResults(findings []rules.Finding) []sarifResult {
 				{
 					PhysicalLocation: sarifPhysicalLocation{
 						ArtifactLocation: sarifArtifactLocation{URI: f.File, URIBaseID: "%SRCROOT%"},
-						Region:           sarifRegion{StartLine: f.Line, StartColumn: f.Column},
+						Region: sarifRegion{
+							StartLine:   f.Line,
+							StartColumn: f.Column,
+							EndLine:     f.EndLine,
+							EndColumn:   f.EndColumn,
+						},
 					},
 				},
 			},

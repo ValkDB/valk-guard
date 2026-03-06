@@ -115,13 +115,17 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 
 				if sql := extractGoquLiteral(call, alias); sql != "" {
 					pos := fset.Position(call.Pos())
+					end := fset.Position(call.End())
 					line := pos.Line
 					if !yield(scanner.SQLStatement{
-						SQL:      sql,
-						File:     path,
-						Line:     line,
-						Engine:   scanner.EngineGoqu,
-						Disabled: scanner.DisabledRulesForLine(directives, line),
+						SQL:       sql,
+						File:      path,
+						Line:      line,
+						Column:    pos.Column,
+						EndLine:   end.Line,
+						EndColumn: end.Column,
+						Engine:    scanner.EngineGoqu,
+						Disabled:  scanner.DisabledRulesForLine(directives, line),
 					}, nil) {
 						stop = true
 						return false
@@ -139,14 +143,18 @@ func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQ
 				}
 
 				pos := fset.Position(call.Pos())
+				end := fset.Position(call.End())
 				line := pos.Line
 
 				if !yield(scanner.SQLStatement{
-					SQL:      syntheticPrefix + synthetic,
-					File:     path,
-					Line:     line,
-					Engine:   scanner.EngineGoqu,
-					Disabled: scanner.DisabledRulesForLine(directives, line),
+					SQL:       syntheticPrefix + synthetic,
+					File:      path,
+					Line:      line,
+					Column:    pos.Column,
+					EndLine:   end.Line,
+					EndColumn: end.Column,
+					Engine:    scanner.EngineGoqu,
+					Disabled:  scanner.DisabledRulesForLine(directives, line),
 				}, nil) {
 					stop = true
 					return false

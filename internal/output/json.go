@@ -20,13 +20,15 @@ type jsonReport struct {
 
 // jsonEntry mirrors rules.Finding with stable JSON field names.
 type jsonEntry struct {
-	RuleID   string         `json:"rule_id"`
-	Severity rules.Severity `json:"severity"`
-	Message  string         `json:"message"`
-	File     string         `json:"file"`
-	Line     int            `json:"line"`
-	Column   int            `json:"column"`
-	SQL      string         `json:"sql,omitempty"`
+	RuleID    string         `json:"rule_id"`
+	Severity  rules.Severity `json:"severity"`
+	Message   string         `json:"message"`
+	File      string         `json:"file"`
+	Line      int            `json:"line"`
+	Column    int            `json:"column"`
+	EndLine   int            `json:"end_line,omitempty"`
+	EndColumn int            `json:"end_column,omitempty"`
+	SQL       string         `json:"sql,omitempty"`
 }
 
 // jsonSummary holds aggregate counts for the report.
@@ -49,13 +51,15 @@ func (r *JSONReporter) Report(ctx context.Context, w io.Writer, findings []rules
 	entries := make([]jsonEntry, 0, len(findings))
 	for _, f := range findings {
 		entries = append(entries, jsonEntry{
-			RuleID:   f.RuleID,
-			Severity: f.Severity,
-			Message:  f.Message,
-			File:     f.File,
-			Line:     f.Line,
-			Column:   f.Column,
-			SQL:      f.SQL,
+			RuleID:    f.RuleID,
+			Severity:  f.Severity,
+			Message:   f.Message,
+			File:      f.File,
+			Line:      f.Line,
+			Column:    f.Column,
+			EndLine:   f.EndLine,
+			EndColumn: f.EndColumn,
+			SQL:       f.SQL,
 		})
 	}
 

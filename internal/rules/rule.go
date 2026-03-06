@@ -17,13 +17,15 @@ const (
 
 // Finding represents a single lint finding produced by a rule.
 type Finding struct {
-	RuleID   string   `json:"rule_id"`
-	Severity Severity `json:"severity"`
-	Message  string   `json:"message"`
-	File     string   `json:"file"`
-	Line     int      `json:"line"`
-	Column   int      `json:"column"`
-	SQL      string   `json:"sql,omitempty"`
+	RuleID    string   `json:"rule_id"`
+	Severity  Severity `json:"severity"`
+	Message   string   `json:"message"`
+	File      string   `json:"file"`
+	Line      int      `json:"line"`
+	Column    int      `json:"column"`
+	EndLine   int      `json:"end_line,omitempty"`
+	EndColumn int      `json:"end_column,omitempty"`
+	SQL       string   `json:"sql,omitempty"`
 }
 
 // Rule is the interface that all valk-guard lint rules must implement.

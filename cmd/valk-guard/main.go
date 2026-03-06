@@ -406,6 +406,7 @@ func processStatements(
 				return
 			}
 			ruleFindings := rule.Check(parsed, stmt.File, stmt.Line, stmt.SQL)
+			applyStatementRange(ruleFindings, stmt)
 			for i := range ruleFindings {
 				ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
 			}
@@ -507,11 +508,67 @@ func sortFindings(findings []rules.Finding) {
 		if c := cmp.Compare(a.Column, b.Column); c != 0 {
 			return c
 		}
+		if c := cmp.Compare(a.EndLine, b.EndLine); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.EndColumn, b.EndColumn); c != 0 {
+			return c
+		}
 		if c := strings.Compare(a.RuleID, b.RuleID); c != 0 {
 			return c
 		}
 		return strings.Compare(a.Message, b.Message)
 	})
+}
+
+// applyStatementRange fills missing finding range fields from the originating
+// statement so reporters can render multiline diagnostics consistently.
+func applyStatementRange(findings []rules.Finding, stmt scanner.SQLStatement) {
+	startLine, startColumn, endLine, endColumn := normalizeStatementRange(stmt)
+	for i := range findings {
+		if findings[i].Line < 1 {
+			findings[i].Line = startLine
+		}
+		if findings[i].Column < 1 || (findings[i].Column == 1 && startColumn > 1 && findings[i].Line == startLine) {
+			findings[i].Column = startColumn
+		}
+		if findings[i].EndLine < findings[i].Line {
+			findings[i].EndLine = endLine
+		}
+		if findings[i].EndColumn < 1 {
+			findings[i].EndColumn = endColumn
+		}
+	}
+}
+
+// normalizeStatementRange returns a valid 1-based range for a scanned
+// statement, falling back to a minimal single-column span when needed.
+func normalizeStatementRange(stmt scanner.SQLStatement) (int, int, int, int) {
+	startLine := stmt.Line
+	if startLine < 1 {
+		startLine = 1
+	}
+
+	startColumn := stmt.Column
+	if startColumn < 1 {
+		startColumn = 1
+	}
+
+	endLine := stmt.EndLine
+	if endLine < startLine {
+		endLine = startLine
+	}
+
+	endColumn := stmt.EndColumn
+	if endColumn < 1 {
+		if endLine > startLine {
+			endColumn = 1
+		} else {
+			endColumn = startColumn + 1
+		}
+	}
+
+	return startLine, startColumn, endLine, endColumn
 }
 
 // buildRulePlan iterates over the registry and partitions enabled rules by the
@@ -836,6 +893,7 @@ func runQuerySchemaChecks(
 			seenByKey := make(map[queryFindingKeyValue]struct{})
 			for _, snap := range snaps {
 				ruleFindings := rule.CheckQuerySchema(snap, &ps.stmt, ps.parsed)
+				applyStatementRange(ruleFindings, ps.stmt)
 				for i := range ruleFindings {
 					ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
 					key := queryFindingKey(&ruleFindings[i])
@@ -880,22 +938,26 @@ func querySnapshotsForEngine(
 // queryFindingKey builds a deterministic key for de-duplicating query-schema
 // findings emitted from multiple schema snapshots.
 type queryFindingKeyValue struct {
-	RuleID  string
-	File    string
-	Line    int
-	Column  int
-	Message string
-	SQL     string
+	RuleID    string
+	File      string
+	Line      int
+	Column    int
+	EndLine   int
+	EndColumn int
+	Message   string
+	SQL       string
 }
 
 func queryFindingKey(f *rules.Finding) queryFindingKeyValue {
 	return queryFindingKeyValue{
-		RuleID:  f.RuleID,
-		File:    f.File,
-		Line:    f.Line,
-		Column:  f.Column,
-		Message: f.Message,
-		SQL:     f.SQL,
+		RuleID:    f.RuleID,
+		File:      f.File,
+		Line:      f.Line,
+		Column:    f.Column,
+		EndLine:   f.EndLine,
+		EndColumn: f.EndColumn,
+		Message:   f.Message,
+		SQL:       f.SQL,
 	}
 }
 

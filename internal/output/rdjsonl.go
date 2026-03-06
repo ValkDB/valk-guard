@@ -69,16 +69,9 @@ func (r *RDJSONLReporter) Report(ctx context.Context, w io.Writer, findings []ru
 }
 
 // buildRDJSONLDiagnostic converts a single finding into the reviewdog rdjsonl
-// diagnostic shape with a minimal single-column range.
+// diagnostic shape, preserving multiline ranges when available.
 func buildRDJSONLDiagnostic(f rules.Finding) rdjsonlDiagnostic {
-	line := f.Line
-	if line < 1 {
-		line = 1
-	}
-	column := f.Column
-	if column < 1 {
-		column = 1
-	}
+	start, end := reviewdogRange(f)
 
 	return rdjsonlDiagnostic{
 		Source: rdjsonlSource{
@@ -91,11 +84,41 @@ func buildRDJSONLDiagnostic(f rules.Finding) rdjsonlDiagnostic {
 		Location: rdjsonlLocation{
 			Path: f.File,
 			Range: rdjsonlRange{
-				Start: rdjsonlPosition{Line: line, Column: column},
-				End:   rdjsonlPosition{Line: line, Column: column + 1},
+				Start: start,
+				End:   end,
 			},
 		},
 	}
+}
+
+// reviewdogRange returns a valid 1-based range for reviewdog, falling back to
+// a minimal single-column span when the finding does not provide an end range.
+func reviewdogRange(f rules.Finding) (rdjsonlPosition, rdjsonlPosition) {
+	line := f.Line
+	if line < 1 {
+		line = 1
+	}
+
+	column := f.Column
+	if column < 1 {
+		column = 1
+	}
+
+	endLine := f.EndLine
+	if endLine < line {
+		endLine = line
+	}
+
+	endColumn := f.EndColumn
+	if endColumn < 1 {
+		if endLine > line {
+			endColumn = 1
+		} else {
+			endColumn = column + 1
+		}
+	}
+
+	return rdjsonlPosition{Line: line, Column: column}, rdjsonlPosition{Line: endLine, Column: endColumn}
 }
 
 // reviewdogSeverity maps valk-guard severities to reviewdog severity levels.
