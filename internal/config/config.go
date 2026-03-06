@@ -275,7 +275,7 @@ func (c *Config) IsMigrationPath(filePath string) bool {
 
 	patterns := c.MigrationPaths
 	if len(patterns) == 0 {
-		patterns = DefaultMigrationPaths
+		patterns = DefaultMigrationPaths()
 	}
 
 	for _, rawPattern := range patterns {

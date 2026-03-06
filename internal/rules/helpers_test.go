@@ -18,6 +18,9 @@ func TestIsConstantTrueClause(t *testing.T) {
 		{name: "where double not false", clause: "WHERE NOT NOT FALSE", want: false},
 		{name: "where real predicate", clause: "WHERE id = 1", want: false},
 		{name: "having true", clause: "HAVING TRUE", want: true},
+		{name: "where one equals two", clause: "WHERE 1 = 2", want: false},
+		{name: "where false literal", clause: "WHERE FALSE", want: false},
+		{name: "where column equals itself", clause: "WHERE id = id", want: false},
 	}
 
 	for _, tt := range tests {
@@ -45,6 +48,90 @@ func TestNormalizePredicateForMatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := normalizePredicateForMatch(tt.clause); got != tt.want {
 				t.Fatalf("normalizePredicateForMatch(%q) = %q, want %q", tt.clause, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripSQL(t *testing.T) {
+	tests := []struct {
+		name        string
+		sql         string
+		stripQuoted bool
+		want        string
+	}{
+		{
+			name:        "line comment removed",
+			sql:         "SELECT 1 -- comment\nFROM t",
+			stripQuoted: false,
+			want:        "SELECT 1 \nFROM t",
+		},
+		{
+			name:        "block comment removed",
+			sql:         "SELECT /* a comment */ 1",
+			stripQuoted: false,
+			want:        "SELECT  1",
+		},
+		{
+			name:        "nested block comment",
+			sql:         "SELECT /* outer /* inner */ still outer */ 1",
+			stripQuoted: false,
+			want:        "SELECT  1",
+		},
+		{
+			name:        "single quoted preserved when not stripping",
+			sql:         "SELECT 'hello' FROM t",
+			stripQuoted: false,
+			want:        "SELECT 'hello' FROM t",
+		},
+		{
+			name:        "single quoted stripped",
+			sql:         "SELECT 'hello' FROM t",
+			stripQuoted: true,
+			want:        "SELECT   FROM t",
+		},
+		{
+			name:        "escaped single quote preserved",
+			sql:         "SELECT 'it''s' FROM t",
+			stripQuoted: false,
+			want:        "SELECT 'it''s' FROM t",
+		},
+		{
+			name:        "escaped single quote stripped",
+			sql:         "SELECT 'it''s' FROM t",
+			stripQuoted: true,
+			want:        "SELECT   FROM t",
+		},
+		{
+			name:        "dollar quoted stripped",
+			sql:         "SELECT $$body$$ FROM t",
+			stripQuoted: true,
+			want:        "SELECT   FROM t",
+		},
+		{
+			name:        "tagged dollar quote stripped",
+			sql:         "SELECT $tag$content$tag$ FROM t",
+			stripQuoted: true,
+			want:        "SELECT   FROM t",
+		},
+		{
+			name:        "double quoted identifier stripped",
+			sql:         `SELECT "Column" FROM t`,
+			stripQuoted: true,
+			want:        "SELECT   FROM t",
+		},
+		{
+			name:        "plain sql unchanged",
+			sql:         "SELECT 1 FROM t WHERE id = 5",
+			stripQuoted: false,
+			want:        "SELECT 1 FROM t WHERE id = 5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripSQL(tt.sql, tt.stripQuoted); got != tt.want {
+				t.Fatalf("stripSQL(%q, %v) = %q, want %q", tt.sql, tt.stripQuoted, got, tt.want)
 			}
 		})
 	}

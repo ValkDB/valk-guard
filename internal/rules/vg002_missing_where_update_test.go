@@ -43,6 +43,11 @@ func TestMissingWhereUpdateRule(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name:      "update with zero equals zero where",
+			sql:       "UPDATE users SET active = false WHERE 0 = 0",
+			wantCount: 1,
+		},
+		{
 			name:      "update with placeholder plus predicate",
 			sql:       "UPDATE users SET active = false WHERE 1 = 1 AND id = 1",
 			wantCount: 0,

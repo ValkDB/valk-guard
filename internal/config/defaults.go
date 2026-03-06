@@ -10,12 +10,20 @@ var DefaultConfigPaths = []string{
 	".valk-guard.yml",
 }
 
-// DefaultMigrationPaths lists directory-like path patterns used to identify
-// migration SQL files when migration_paths is not configured explicitly.
-var DefaultMigrationPaths = []string{
+// defaultMigrationPaths is the backing data for DefaultMigrationPaths.
+var defaultMigrationPaths = []string{
 	"migrations",
 	"migration",
 	"migrate",
+}
+
+// DefaultMigrationPaths returns the directory-like path patterns used to
+// identify migration SQL files when migration_paths is not configured
+// explicitly. Each call returns a fresh copy.
+func DefaultMigrationPaths() []string {
+	out := make([]string, len(defaultMigrationPaths))
+	copy(out, defaultMigrationPaths)
+	return out
 }
 
 // Output format name constants used for validation and reporter selection.

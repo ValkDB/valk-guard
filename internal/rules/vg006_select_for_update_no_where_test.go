@@ -73,6 +73,21 @@ func TestSelectForUpdateNoWhereRule(t *testing.T) {
 			wantCount: 1,
 		},
 		{
+			name:      "for update with constant true WHERE 1=1 is flagged",
+			sql:       "SELECT * FROM users WHERE 1 = 1 FOR UPDATE",
+			wantCount: 1,
+		},
+		{
+			name:      "for update with constant true WHERE TRUE is flagged",
+			sql:       "SELECT * FROM users WHERE TRUE FOR UPDATE",
+			wantCount: 1,
+		},
+		{
+			name:      "for update with 1=1 AND real predicate is not flagged",
+			sql:       "SELECT * FROM users WHERE 1 = 1 AND id = 5 FOR UPDATE",
+			wantCount: 0,
+		},
+		{
 			name:      "nil parsed query",
 			sql:       "",
 			wantCount: 0,

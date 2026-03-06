@@ -42,3 +42,53 @@ func TestScanErrorCollectorJoinsScannerErrors(t *testing.T) {
 		t.Fatal("expected joined error to contain the second scanner error")
 	}
 }
+
+func TestScanErrorCollectorAddNilIsNoop(t *testing.T) {
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	collector := &scanErrorCollector{
+		cancel: cancel,
+		logger: logger,
+	}
+
+	collector.Add(nil)
+
+	if err := collector.Err(); err != nil {
+		t.Fatalf("expected nil error after Add(nil), got %v", err)
+	}
+}
+
+func TestScanErrorCollectorSuppressesCanceledAfterFirstError(t *testing.T) {
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	collector := &scanErrorCollector{
+		cancel: cancel,
+		logger: logger,
+	}
+
+	first := errors.New("real scanner error")
+	collector.Add(first)
+
+	// context.Canceled after a real error should be suppressed.
+	collector.Add(context.Canceled)
+	// context.DeadlineExceeded after a real error should also be suppressed.
+	collector.Add(context.DeadlineExceeded)
+
+	err := collector.Err()
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+	if !errors.Is(err, first) {
+		t.Fatal("expected error to contain the first real error")
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatal("expected context.Canceled to be suppressed")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("expected context.DeadlineExceeded to be suppressed")
+	}
+}
