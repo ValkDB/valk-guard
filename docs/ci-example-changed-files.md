@@ -42,6 +42,7 @@ jobs:
         uses: tj-actions/changed-files@v45
         with:
           separator: "\n"
+          safe_output: false
           files: |
             **/*.sql
             **/*.go
@@ -52,8 +53,10 @@ jobs:
 
       - name: Run valk-guard
         if: steps.changed.outputs.any_changed == 'true'
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.all_changed_files }}
         run: |
-          mapfile -t files < <(printf '%s' "${{ steps.changed.outputs.all_changed_files }}")
+          mapfile -t files < <(printf '%s' "$CHANGED_FILES")
 
           set +e
           valk-guard scan "${files[@]}" --config .valk-guard.yaml --format rdjsonl > valk-guard.rdjsonl
