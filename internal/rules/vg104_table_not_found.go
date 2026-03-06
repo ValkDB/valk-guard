@@ -28,7 +28,7 @@ func (r *TableNotFoundRule) Description() string {
 func (r *TableNotFoundRule) DefaultSeverity() Severity { return SeverityError }
 
 // CheckSchema checks that every model maps to a known table.
-func (r *TableNotFoundRule) CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding {
+func (r *TableNotFoundRule) CheckSchema(_ context.Context, snap *schema.Snapshot, models []schema.ModelDef) []Finding {
 	if len(snap.Tables) == 0 {
 		return nil
 	}

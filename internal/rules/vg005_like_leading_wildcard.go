@@ -34,7 +34,7 @@ func (r *LikeLeadingWildcardRule) CommandTargets() []postgresparser.QueryCommand
 }
 
 // Check reports a finding when any parsed predicate uses LIKE/ILIKE '%...'.
-func (r *LikeLeadingWildcardRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+func (r *LikeLeadingWildcardRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil {
 		return nil
 	}

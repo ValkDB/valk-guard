@@ -80,10 +80,10 @@ func TestSelectForUpdateNoWhereRule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var findings []Finding
 			if tt.name == "nil parsed query" {
-				findings = rule.Check(nil, "query.sql", 42, tt.sql)
+				findings = rule.Check(context.Background(), nil, "query.sql", 42, tt.sql)
 			} else {
 				parsed := parseSQL(t, tt.sql)
-				findings = rule.Check(parsed, "query.sql", 42, tt.sql)
+				findings = rule.Check(context.Background(), parsed, "query.sql", 42, tt.sql)
 			}
 
 			if len(findings) != tt.wantCount {

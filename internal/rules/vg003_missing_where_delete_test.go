@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestMissingWhereDeleteRule validates DELETE without WHERE detection.
 func TestMissingWhereDeleteRule(t *testing.T) {
@@ -25,8 +28,23 @@ func TestMissingWhereDeleteRule(t *testing.T) {
 			wantCount: 0,
 		},
 		{
+			name:      "delete with constant true where",
+			sql:       "DELETE FROM users WHERE 1 = 1",
+			wantCount: 1,
+		},
+		{
+			name:      "delete with true literal where",
+			sql:       "DELETE FROM users WHERE (TRUE)",
+			wantCount: 1,
+		},
+		{
 			name:      "delete with subquery where",
 			sql:       "DELETE FROM users WHERE id IN (SELECT id FROM inactive)",
+			wantCount: 0,
+		},
+		{
+			name:      "delete with placeholder plus predicate",
+			sql:       "DELETE FROM users WHERE 1 = 1 AND id = 1",
 			wantCount: 0,
 		},
 		{
@@ -40,10 +58,10 @@ func TestMissingWhereDeleteRule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var findings []Finding
 			if tt.name == "nil parsed query" {
-				findings = rule.Check(nil, "query.sql", 30, tt.sql)
+				findings = rule.Check(context.Background(), nil, "query.sql", 30, tt.sql)
 			} else {
 				parsed := parseSQL(t, tt.sql)
-				findings = rule.Check(parsed, "query.sql", 30, tt.sql)
+				findings = rule.Check(context.Background(), parsed, "query.sql", 30, tt.sql)
 			}
 
 			if len(findings) != tt.wantCount {

@@ -80,7 +80,7 @@ var modelTypeAliases = map[string]string{
 }
 
 // CheckSchema compares model column types against the migration schema.
-func (r *TypeMismatchRule) CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding {
+func (r *TypeMismatchRule) CheckSchema(_ context.Context, snap *schema.Snapshot, models []schema.ModelDef) []Finding {
 	var findings []Finding
 	for _, model := range models {
 		td := matchTable(snap, model.Table)
