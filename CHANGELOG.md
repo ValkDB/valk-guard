@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-03-06
+
+### Fixed
+- SQLAlchemy scanner now resolves `__tablename__` instead of using Python class names in synthetic SQL, eliminating VG107 false positives.
+- Bumped postgresparser to v1.1.7: subquery `ColumnUsage` is now scoped to nested queries, eliminating VG106 false positives on `WHERE ... IN (SELECT ...)`.
+
 ## [0.1.0] - 2026-03-06
 
 ### Added
@@ -56,4 +62,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - GitHub Actions workflow with reviewdog PR review comments, self-scan dogfooding, and cross-platform builds.
 - GoReleaser configuration for cross-compiled releases.
 
+[0.1.1]: https://github.com/ValkDB/valk-guard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ValkDB/valk-guard/releases/tag/v0.1.0
