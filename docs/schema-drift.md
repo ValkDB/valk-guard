@@ -153,6 +153,10 @@ Column types are extracted from `Column()` arguments for type-mismatch detection
 Schema-aware rules use the same config model:
 
 ```yaml
+migration_paths:
+  - db/migrations
+  - schema/**/*.sql
+
 rules:
   VG101:
     severity: error
@@ -175,10 +179,6 @@ rules:
   VG108:
     severity: warning
     engines: [sql, go, goqu, sqlalchemy]
-
-migration_paths:
-  - db/migrations
-  - schema/**/*.sql
 ```
 
 Schema rules honor `engines` filtering by source:

@@ -47,16 +47,6 @@ func isWildcardProjection(expr string) bool {
 	return strings.HasSuffix(trimmed, ".*")
 }
 
-// hasClause reports whether at least one non-empty clause string exists.
-func hasClause(items []string) bool {
-	for _, item := range items {
-		if strings.TrimSpace(item) != "" {
-			return true
-		}
-	}
-	return false
-}
-
 // hasRestrictiveClause reports whether at least one clause is non-empty and not
 // an always-true placeholder such as TRUE or 1=1.
 func hasRestrictiveClause(items []string) bool {

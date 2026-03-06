@@ -36,7 +36,7 @@ func (r *SelectForUpdateNoWhereRule) Check(_ context.Context, parsed *postgrespa
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandSelect {
 		return nil
 	}
-	if !hasForUpdateClause(rawSQL) || hasClause(parsed.Where) {
+	if !hasForUpdateClause(rawSQL) || hasRestrictiveClause(parsed.Where) {
 		return nil
 	}
 	// Bounded locking queries are common worker patterns and are intentionally
