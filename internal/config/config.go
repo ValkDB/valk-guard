@@ -57,9 +57,9 @@ type Config struct {
 // Load reads a config file from the given path. If path is empty,
 // it searches DefaultConfigPaths in the current directory.
 // If no config file is found, it returns Default().
-func Load(path string) (*Config, error) {
-	if path != "" {
-		return loadFromFile(path)
+func Load(configPath string) (*Config, error) {
+	if configPath != "" {
+		return loadFromFile(configPath)
 	}
 
 	for _, name := range DefaultConfigPaths {
@@ -73,15 +73,15 @@ func Load(path string) (*Config, error) {
 
 // loadFromFile reads and parses a YAML config file at the given path,
 // merging its values into a default Config.
-func loadFromFile(path string) (*Config, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // config path is user-provided CLI input
+func loadFromFile(configPath string) (*Config, error) {
+	data, err := os.ReadFile(configPath) //nolint:gosec // config path is user-provided CLI input
 	if err != nil {
-		return nil, fmt.Errorf("reading config %s: %w", path, err)
+		return nil, fmt.Errorf("reading config %s: %w", configPath, err)
 	}
 
 	cfg := Default()
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parsing config %s: %w", path, err)
+		return nil, fmt.Errorf("parsing config %s: %w", configPath, err)
 	}
 
 	if cfg.Rules == nil {
