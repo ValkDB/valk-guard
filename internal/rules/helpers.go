@@ -19,7 +19,8 @@ var (
 	forUpdatePattern = regexp.MustCompile(`(?i)\bFOR\s+UPDATE\b`)
 	// constantTruePattern matches simple tautologies that are commonly used as
 	// placeholder WHERE predicates.
-	constantTruePattern = regexp.MustCompile(`(?i)^(?:true|1\s*=\s*1|not\s+false)$`)
+	constantTruePattern    = regexp.MustCompile(`(?i)^(?:true|1\s*=\s*1|not\s+false)$`)
+	numericEqualityPattern = regexp.MustCompile(`^(\d+)\s*=\s*(\d+)$`)
 )
 
 // newFinding builds a standardized Finding object with default column 1.
@@ -74,7 +75,15 @@ func isConstantTrueClause(clause string) bool {
 	if normalized == "" {
 		return false
 	}
-	return constantTruePattern.MatchString(normalized)
+	if constantTruePattern.MatchString(normalized) {
+		return true
+	}
+
+	matches := numericEqualityPattern.FindStringSubmatch(normalized)
+	if len(matches) != 3 {
+		return false
+	}
+	return canonicalIntLiteral(matches[1]) == canonicalIntLiteral(matches[2])
 }
 
 // normalizePredicateForMatch strips comments, outer parens, and redundant
@@ -123,6 +132,14 @@ func wrappedBySingleParens(s string) bool {
 		}
 	}
 	return depth == 0
+}
+
+func canonicalIntLiteral(s string) string {
+	s = strings.TrimLeft(s, "0")
+	if s == "" {
+		return "0"
+	}
+	return s
 }
 
 // hasLimitClause reports whether a parsed SELECT has a top-level LIMIT/FETCH.
@@ -328,12 +345,6 @@ func skipDoubleQuoted(sql string, i int, b *strings.Builder) int {
 	}
 	b.WriteByte(' ')
 	return i
-}
-
-// stripSQLComments is a convenience wrapper that removes only comments,
-// preserving string literals and identifiers.
-func stripSQLComments(sql string) string {
-	return stripSQL(sql, false)
 }
 
 // scanDollarQuoteTag checks whether sql[pos] starts a valid dollar-quote tag.

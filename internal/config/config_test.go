@@ -272,6 +272,11 @@ func TestIsMigrationPath(t *testing.T) {
 			want:     true,
 		},
 		{
+			name:     "default matches relative migrations dir",
+			filePath: "db/migrations/001.sql",
+			want:     true,
+		},
+		{
 			name:     "default matches windows migration dir",
 			filePath: `C:\repo\db\migration\002.sql`,
 			want:     true,
