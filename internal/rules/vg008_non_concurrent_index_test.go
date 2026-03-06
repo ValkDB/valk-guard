@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestNonConcurrentIndexRule validates CREATE INDEX without CONCURRENTLY detection.
 func TestNonConcurrentIndexRule(t *testing.T) {

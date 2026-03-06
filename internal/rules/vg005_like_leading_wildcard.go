@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // LikeLeadingWildcardRule detects LIKE/ILIKE patterns that begin with '%'.
 type LikeLeadingWildcardRule struct{}

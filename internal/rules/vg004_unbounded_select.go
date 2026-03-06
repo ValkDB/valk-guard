@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"strings"
 
 	"github.com/valkdb/postgresparser"

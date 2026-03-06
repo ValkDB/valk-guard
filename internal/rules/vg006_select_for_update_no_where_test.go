@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestSelectForUpdateNoWhereRule validates FOR UPDATE without WHERE detection.
 func TestSelectForUpdateNoWhereRule(t *testing.T) {

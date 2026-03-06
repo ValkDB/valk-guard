@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestSelectStarRule validates wildcard projection detection.
 func TestSelectStarRule(t *testing.T) {

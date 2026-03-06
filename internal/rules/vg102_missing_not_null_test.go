@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/valkdb/valk-guard/internal/schema"

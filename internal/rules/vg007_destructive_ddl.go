@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // DestructiveDDLRule detects destructive schema operations.
 type DestructiveDDLRule struct{}

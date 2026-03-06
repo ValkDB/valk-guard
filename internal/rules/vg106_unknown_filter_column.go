@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/valkdb/postgresparser"

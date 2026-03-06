@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/valkdb/postgresparser"
@@ -23,7 +24,7 @@ func (r *mockRule) ID() string                { return r.id }
 func (r *mockRule) Name() string              { return r.name }
 func (r *mockRule) Description() string       { return r.desc }
 func (r *mockRule) DefaultSeverity() Severity { return r.severity }
-func (r *mockRule) Check(_ *postgresparser.ParsedQuery, _ string, _ int, _ string) []Finding {
+func (r *mockRule) Check(_ context.Context, _ *postgresparser.ParsedQuery, _ string, _ int, _ string) []Finding {
 	return nil
 }
 
@@ -36,7 +37,7 @@ func (r *mockQuerySchemaRule) ID() string                { return r.id }
 func (r *mockQuerySchemaRule) Name() string              { return "mock-query-schema" }
 func (r *mockQuerySchemaRule) Description() string       { return "mock query schema rule" }
 func (r *mockQuerySchemaRule) DefaultSeverity() Severity { return SeverityWarning }
-func (r *mockQuerySchemaRule) CheckQuerySchema(_ *schema.Snapshot, _ *scanner.SQLStatement, _ *postgresparser.ParsedQuery) []Finding {
+func (r *mockQuerySchemaRule) CheckQuerySchema(_ context.Context, _ *schema.Snapshot, _ *scanner.SQLStatement, _ *postgresparser.ParsedQuery) []Finding {
 	return nil
 }
 
@@ -49,7 +50,7 @@ func (r *mockSchemaRule) ID() string                { return r.id }
 func (r *mockSchemaRule) Name() string              { return "mock-schema" }
 func (r *mockSchemaRule) Description() string       { return "mock schema rule" }
 func (r *mockSchemaRule) DefaultSeverity() Severity { return SeverityWarning }
-func (r *mockSchemaRule) CheckSchema(_ *schema.Snapshot, _ []schema.ModelDef) []Finding {
+func (r *mockSchemaRule) CheckSchema(_ context.Context, _ *schema.Snapshot, _ []schema.ModelDef) []Finding {
 	return nil
 }
 

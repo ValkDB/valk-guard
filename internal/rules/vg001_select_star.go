@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // SelectStarRule detects SELECT * usage in query projections.
 type SelectStarRule struct{}
