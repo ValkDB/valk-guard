@@ -1,7 +1,7 @@
 // Copyright 2025 ValkDB
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package engine
 
 import (
 	"context"
@@ -20,6 +20,14 @@ import (
 	"github.com/valkdb/valk-guard/internal/rules"
 	"github.com/valkdb/valk-guard/internal/scanner"
 )
+
+// Result captures the engine outputs needed by the CLI layer.
+type Result struct {
+	// Findings contains all deduplicated findings emitted by the run.
+	Findings []rules.Finding
+	// HadScannableInputs reports whether any supported source files were found.
+	HadScannableInputs bool
+}
 
 // namedScanner associates a human-readable scanner name with its implementation
 // and the set of input files it should process.
@@ -54,6 +62,67 @@ type statementResults struct {
 	stmtCount      int
 }
 
+// scanErrorCollector joins scanner failures, cancels the scan on the first
+// hard error, and logs later errors so they are not silently dropped.
+type scanErrorCollector struct {
+	cancel context.CancelFunc
+	logger *slog.Logger
+
+	mu   sync.Mutex
+	errs []error
+}
+
+// Add records a scanner error, canceling the scan on the first one and
+// logging later non-context errors for diagnostics.
+func (c *scanErrorCollector) Add(err error) {
+	if err == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.errs) > 0 && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return
+	}
+
+	if len(c.errs) == 0 {
+		c.errs = append(c.errs, err)
+		c.cancel()
+		return
+	}
+
+	c.errs = append(c.errs, err)
+	c.logger.Warn("additional scanner error", "error", err)
+}
+
+// Err returns all collected scanner errors as a single joined error.
+func (c *scanErrorCollector) Err() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if len(c.errs) == 0 {
+		return nil
+	}
+	return errors.Join(c.errs...)
+}
+
+// Run discovers scannable inputs, runs all scanners and enabled rules, and
+// returns the aggregated findings plus input metadata for the caller.
+func Run(ctx context.Context, paths []string, cfg *config.Config, logger *slog.Logger) (Result, error) {
+	reg := rules.DefaultRegistry()
+	warnUnknownConfiguredRules(cfg, reg, logger)
+
+	findings, hadScannableInputs, err := collectAndAnalyze(ctx, paths, cfg, reg, logger)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{
+		Findings:           findings,
+		HadScannableInputs: hadScannableInputs,
+	}, nil
+}
+
 // collectAndAnalyze walks the given paths to discover source files, fans out
 // scanning across all registered scanners concurrently, parses each SQL
 // statement, applies enabled rules, and returns the deduplicated, sorted
@@ -77,39 +146,19 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 	scanCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var (
-		firstErr error
-		errMu    sync.Mutex
-	)
-	setFirstErr := func(err error) {
-		if err == nil {
-			return
-		}
-		errMu.Lock()
-		if firstErr == nil {
-			firstErr = err
-			cancel()
-		}
-		errMu.Unlock()
-	}
+	errCollector := &scanErrorCollector{cancel: cancel, logger: logger}
 
-	results := fanOutScanners(scanCtx, active, logger, setFirstErr)
+	results := fanOutScanners(scanCtx, active, logger, errCollector.Add)
+	checkErr := errCollector.Err
 
-	checkErr := func() error {
-		errMu.Lock()
-		defer errMu.Unlock()
-		return firstErr
-	}
-
-	sr := processStatements(scanCtx, results, cfg, rulePlan, logger, setFirstErr, checkErr)
+	sr := processStatements(scanCtx, results, cfg, rulePlan, logger, errCollector.Add, checkErr)
 
 	if err := checkErr(); err != nil {
 		return nil, true, err
 	}
 
-	// Sort statements by (File, Line) so that schema is built in
-	// deterministic order regardless of goroutine scheduling in
-	// fanOutScanners.
+	// Sort statements by (File, Line) so that schema is built in deterministic
+	// order regardless of goroutine scheduling in fanOutScanners.
 	slices.SortFunc(sr.sqlStmts, func(a, b scanner.SQLStatement) int {
 		if a.File != b.File {
 			if a.File < b.File {
@@ -129,11 +178,10 @@ func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, 
 		return a.Line - b.Line
 	})
 
-	// Schema-aware phase: build migration snapshot once, then run
-	// query-schema rules and model schema-drift rules.
-	// Prefer files under migration-like paths when present; otherwise fall
-	// back to all SQL files to preserve behavior for projects that keep
-	// migrations elsewhere.
+	// Schema-aware phase: build migration snapshot once, then run query-schema
+	// rules and model schema-drift rules. Prefer files under migration-like
+	// paths when present; otherwise fall back to all SQL files to preserve
+	// behavior for projects that keep migrations elsewhere.
 	schemaSQLStatements := sr.sqlStmts
 	if len(sr.migrationStmts) > 0 {
 		schemaSQLStatements = sr.migrationStmts
@@ -156,7 +204,7 @@ func processStatements(
 	cfg *config.Config,
 	rulePlan plannedRules,
 	logger *slog.Logger,
-	setFirstErr func(error),
+	recordErr func(error),
 	checkErr func() error,
 ) statementResults {
 	var sr statementResults
@@ -166,7 +214,7 @@ func processStatements(
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			setFirstErr(err)
+			recordErr(err)
 			continue
 		}
 
@@ -175,10 +223,10 @@ func processStatements(
 			continue
 		}
 
-		// Collect SQL-engine statements for schema-drift analysis.
+		// Collect raw SQL statements for schema snapshot accumulation.
 		if stmt.Engine == scanner.EngineSQL {
 			sr.sqlStmts = append(sr.sqlStmts, stmt)
-			if isMigrationSQLFile(stmt.File) {
+			if cfg.IsMigrationPath(stmt.File) {
 				sr.migrationStmts = append(sr.migrationStmts, stmt)
 			}
 		}
@@ -210,7 +258,7 @@ func processStatements(
 			if scanner.IsDisabled(rule.ID(), stmt.Disabled) {
 				return
 			}
-			ruleFindings := rule.Check(parsed, stmt.File, stmt.Line, stmt.SQL)
+			ruleFindings := rule.Check(ctx, parsed, stmt.File, stmt.Line, stmt.SQL)
 			applyStatementRange(ruleFindings, &stmt)
 			for i := range ruleFindings {
 				ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
@@ -252,31 +300,32 @@ func activeScanners(inputs scannerInputs, bindings []scannerBinding, logger *slo
 
 // fanOutScanners launches each scanner in its own goroutine, writing
 // discovered statements into a returned channel. The channel is closed once
-// all goroutines finish. Any scanner error is reported via setFirstErr and
-// causes the scan context to be canceled.
+// all goroutines finish. Scanner failures are recorded through recordErr and
+// cancel the scan context.
 func fanOutScanners(
 	scanCtx context.Context,
 	active []namedScanner,
 	logger *slog.Logger,
-	setFirstErr func(error),
+	recordErr func(error),
 ) <-chan scanner.SQLStatement {
 	results := make(chan scanner.SQLStatement, 256)
 	var wg sync.WaitGroup
 
 	for _, sc := range active {
+		sc := sc
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					setFirstErr(fmt.Errorf("scanner %s panicked: %v", sc.name, r))
+					recordErr(fmt.Errorf("scanner %s panicked: %v", sc.name, r))
 				}
 			}()
 
 			emitted := 0
 			for stmt, err := range sc.impl.Scan(scanCtx, sc.in) {
 				if err != nil {
-					setFirstErr(fmt.Errorf("scanner %s: %w", sc.name, err))
+					recordErr(fmt.Errorf("scanner %s: %w", sc.name, err))
 					return
 				}
 
@@ -360,8 +409,7 @@ func collectScannerInputs(ctx context.Context, paths []string, cfg *config.Confi
 	return inputs, nil
 }
 
-// buildRulePlan iterates over the registry and partitions enabled rules by the
-// SQL command types they target, producing a plannedRules ready for fast
+// buildRulePlan partitions enabled rules by SQL command for efficient
 // per-statement dispatch.
 func buildRulePlan(cfg *config.Config, reg *rules.Registry) plannedRules {
 	plan := plannedRules{
