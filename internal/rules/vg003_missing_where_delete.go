@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // MissingWhereDeleteRule detects DELETE statements without a WHERE clause.
 type MissingWhereDeleteRule struct{}
@@ -27,12 +31,13 @@ func (r *MissingWhereDeleteRule) CommandTargets() []postgresparser.QueryCommand 
 	return []postgresparser.QueryCommand{postgresparser.QueryCommandDelete}
 }
 
-// Check reports a finding when DELETE has no WHERE/CURRENT OF predicate.
-func (r *MissingWhereDeleteRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+// Check reports a finding when DELETE has no restrictive WHERE/CURRENT OF
+// predicate.
+func (r *MissingWhereDeleteRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandDelete {
 		return nil
 	}
-	if hasClause(parsed.Where) {
+	if hasRestrictiveClause(parsed.Where) {
 		return nil
 	}
 	return []Finding{

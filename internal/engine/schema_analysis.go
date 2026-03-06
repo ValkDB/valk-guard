@@ -1,7 +1,7 @@
 // Copyright 2025 ValkDB
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package engine
 
 import (
 	"context"
@@ -32,10 +32,7 @@ func runSchemaDrift(
 		return nil
 	}
 
-	// Build migration snapshot from DDL statements.
 	migrationSnap := schema.BuildFromStatements(sqlStmts, logger)
-
-	// Extract models from all configured model sources.
 	models := extractModels(ctx, inputs, modelBindings, logger)
 
 	modelSnaps := make(map[schema.ModelSource]*schema.Snapshot)
@@ -49,20 +46,17 @@ func runSchemaDrift(
 	}
 	querySourceMap := sourceQueryEngines(modelBindings)
 
-	// Run enabled query-schema rules against parsed query statements.
 	var findings []rules.Finding
-	queryFindings := runQuerySchemaChecks(querySchemaRules, parsedStmts, migrationSnap, modelSnaps, querySourceMap, cfg, logger)
+	queryFindings := runQuerySchemaChecks(ctx, querySchemaRules, parsedStmts, migrationSnap, modelSnaps, querySourceMap, cfg, logger)
 	findings = append(findings, queryFindings...)
 
 	if len(schemaRules) == 0 {
 		return findings
 	}
-
 	if len(migrationSnap.Tables) == 0 {
 		logger.Debug("schema-drift skipped: no tables found in schema SQL files")
 		return findings
 	}
-
 	if len(models) == 0 {
 		logger.Debug("schema-drift skipped: no ORM models found")
 		return findings
@@ -70,13 +64,12 @@ func runSchemaDrift(
 
 	logger.Debug("schema-drift analysis", "tables", len(migrationSnap.Tables), "models", len(models))
 
-	// Run enabled schema rules.
 	for _, rule := range schemaRules {
 		ruleModels := modelsForRule(models, cfg, rule.ID(), modelBindings)
 		if len(ruleModels) == 0 {
 			continue
 		}
-		ruleFindings := rule.CheckSchema(migrationSnap, ruleModels)
+		ruleFindings := rule.CheckSchema(ctx, migrationSnap, ruleModels)
 		for i := range ruleFindings {
 			ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
 		}
@@ -115,6 +108,7 @@ func extractModels(
 // runQuerySchemaChecks applies enabled query-schema rules to parsed statements,
 // checking against multiple schema snapshots and deduplicating findings.
 func runQuerySchemaChecks(
+	ctx context.Context,
 	querySchemaRules []rules.QuerySchemaRule,
 	parsedStmts []parsedStatement,
 	migrationSnap *schema.Snapshot,
@@ -161,7 +155,7 @@ func runQuerySchemaChecks(
 
 			seenByKey := make(map[queryFindingKeyValue]struct{})
 			for _, snap := range snaps {
-				ruleFindings := rule.CheckQuerySchema(snap, &ps.stmt, ps.parsed)
+				ruleFindings := rule.CheckQuerySchema(ctx, snap, &ps.stmt, ps.parsed)
 				applyStatementRange(ruleFindings, &ps.stmt)
 				for i := range ruleFindings {
 					ruleFindings[i].Severity = cfg.RuleSeverity(rule.ID(), ruleFindings[i].Severity)
@@ -259,17 +253,22 @@ func modelsForRule(models []schema.ModelDef, cfg *config.Config, ruleID string, 
 	sourceEngines := sourceConfigEngines(modelBindings)
 	filtered := make([]schema.ModelDef, 0, len(models))
 	for _, model := range models {
-		engines, mapped := sourceEngines[model.Source]
-		if !mapped || len(engines) == 0 {
-			filtered = append(filtered, model)
+		engines, ok := sourceEngines[model.Source]
+		if !ok || len(engines) == 0 {
+			// Ignore model sources without an explicit engine binding so newly
+			// added sources do not silently opt into every schema rule by default.
 			continue
 		}
 
+		allowed := false
 		for _, engine := range engines {
 			if cfg.IsRuleEnabledForEngine(ruleID, engine) {
-				filtered = append(filtered, model)
+				allowed = true
 				break
 			}
+		}
+		if allowed {
+			filtered = append(filtered, model)
 		}
 	}
 	return filtered

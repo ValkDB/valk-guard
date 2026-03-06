@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -29,7 +30,7 @@ func (r *DroppedColumnRule) Description() string {
 func (r *DroppedColumnRule) DefaultSeverity() Severity { return SeverityError }
 
 // CheckSchema compares model columns against the migration schema snapshot.
-func (r *DroppedColumnRule) CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding {
+func (r *DroppedColumnRule) CheckSchema(_ context.Context, snap *schema.Snapshot, models []schema.ModelDef) []Finding {
 	var findings []Finding
 	for _, model := range models {
 		td := matchTable(snap, model.Table)

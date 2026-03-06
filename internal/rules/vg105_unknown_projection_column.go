@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/valkdb/postgresparser"
@@ -31,6 +32,7 @@ func (r *UnknownProjectionColumnRule) DefaultSeverity() Severity { return Severi
 
 // CheckQuerySchema validates SELECT projection column usages against the schema.
 func (r *UnknownProjectionColumnRule) CheckQuerySchema(
+	_ context.Context,
 	snap *schema.Snapshot,
 	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,

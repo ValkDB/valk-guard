@@ -39,6 +39,10 @@ func TestLoadFull(t *testing.T) {
 		t.Errorf("expected 2 excludes, got %d", len(cfg.Exclude))
 	}
 
+	if len(cfg.MigrationPaths) != 2 {
+		t.Errorf("expected 2 migration paths, got %d", len(cfg.MigrationPaths))
+	}
+
 	if len(cfg.Rules) != 3 {
 		t.Errorf("expected 3 rules, got %d", len(cfg.Rules))
 	}
@@ -250,6 +254,67 @@ func TestShouldExclude(t *testing.T) {
 			got := cfg.ShouldExclude(tt.filePath)
 			if got != tt.want {
 				t.Errorf("ShouldExclude(%q) = %v, want %v (patterns: %v)", tt.filePath, got, tt.want, tt.exclude)
+			}
+		})
+	}
+}
+
+func TestIsMigrationPath(t *testing.T) {
+	tests := []struct {
+		name           string
+		migrationPaths []string
+		filePath       string
+		want           bool
+	}{
+		{
+			name:     "default matches nested migrations dir",
+			filePath: "/repo/db/migrations/001.sql",
+			want:     true,
+		},
+		{
+			name:     "default matches relative migrations dir",
+			filePath: "db/migrations/001.sql",
+			want:     true,
+		},
+		{
+			name:     "default matches windows migration dir",
+			filePath: `C:\repo\db\migration\002.sql`,
+			want:     true,
+		},
+		{
+			name:     "default does not match non sql",
+			filePath: "/repo/db/migrate/readme.txt",
+			want:     false,
+		},
+		{
+			name:           "custom directory matches all sql beneath it",
+			migrationPaths: []string{"db/changes"},
+			filePath:       "/repo/db/changes/001_init.sql",
+			want:           true,
+		},
+		{
+			name:           "custom glob matches schema files",
+			migrationPaths: []string{"schema/**/*.sql"},
+			filePath:       "/repo/schema/ddl/001_init.sql",
+			want:           true,
+		},
+		{
+			name:           "custom paths disable defaults",
+			migrationPaths: []string{"db/changes"},
+			filePath:       "/repo/db/migrations/001_init.sql",
+			want:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{MigrationPaths: tt.migrationPaths}
+			if err := validateConfig(cfg); err != nil {
+				t.Fatalf("validateConfig() error = %v", err)
+			}
+			got := cfg.IsMigrationPath(tt.filePath)
+			if got != tt.want {
+				t.Errorf("IsMigrationPath(%q) = %v, want %v (patterns: %v)", tt.filePath, got, tt.want, tt.migrationPaths)
 			}
 		})
 	}

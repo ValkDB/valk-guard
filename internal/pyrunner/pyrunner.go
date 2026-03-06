@@ -65,7 +65,7 @@ func ExecScript(ctx context.Context, scriptPath string, files []string) ([]byte,
 			maj, majErr := strconv.Atoi(major)
 			mnr, minErr := strconv.Atoi(minor)
 			if majErr == nil && minErr == nil {
-				if maj != 3 || mnr < 6 {
+				if maj < 3 || (maj == 3 && mnr < 6) {
 					return nil, fmt.Errorf("python3 version 3.6+ required for .py scanning (found %d.%d)", maj, mnr)
 				}
 			}

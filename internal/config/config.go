@@ -44,10 +44,16 @@ type GoModelConfig struct {
 
 // Config represents the top-level valk-guard configuration.
 type Config struct {
-	Format  string                `yaml:"format,omitempty"`
-	Exclude []string              `yaml:"exclude,omitempty"`
-	Rules   map[string]RuleConfig `yaml:"rules,omitempty"`
-	GoModel GoModelConfig         `yaml:"go_model,omitempty"`
+	// Format selects the output reporter: terminal, json, rdjsonl, or sarif.
+	Format string `yaml:"format,omitempty"`
+	// Exclude lists path globs skipped by scanners and schema/model extractors.
+	Exclude []string `yaml:"exclude,omitempty"`
+	// MigrationPaths restricts which .sql files build the schema snapshot.
+	MigrationPaths []string `yaml:"migration_paths,omitempty"`
+	// Rules holds per-rule enablement, severity, and engine overrides.
+	Rules map[string]RuleConfig `yaml:"rules,omitempty"`
+	// GoModel configures Go model extraction behavior.
+	GoModel GoModelConfig `yaml:"go_model,omitempty"`
 
 	// candidateCache memoizes matchCandidates results keyed by file path,
 	// avoiding repeated allocations on the ShouldExclude hot path.
@@ -151,6 +157,8 @@ func validateConfig(cfg *Config) error {
 			cfg.Rules[ruleID] = rc
 		}
 	}
+
+	cfg.MigrationPaths = normalizePathPatterns(cfg.MigrationPaths)
 	return nil
 }
 
@@ -162,6 +170,28 @@ func normalizeGoModelMappingMode(mode GoModelMappingMode) GoModelMappingMode {
 // a canonical form suitable for comparison against known engine identifiers.
 func normalizeEngine(engine string) string {
 	return strings.ToLower(strings.TrimSpace(engine))
+}
+
+// normalizePathPatterns trims, canonicalizes, and de-duplicates path patterns.
+func normalizePathPatterns(patterns []string) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(patterns))
+	seen := make(map[string]struct{}, len(patterns))
+	for _, pattern := range patterns {
+		candidate := normalizeMatchPath(pattern)
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		normalized = append(normalized, candidate)
+	}
+	return normalized
 }
 
 // IsRuleEnabled returns whether the given rule ID is enabled.
@@ -211,14 +241,7 @@ func (c *Config) IsRuleEnabledForEngine(ruleID string, engine scanner.Engine) bo
 // It caches matchCandidates results per path to avoid repeated allocations
 // when the same path is checked against multiple patterns or across calls.
 func (c *Config) ShouldExclude(filePath string) bool {
-	var candidates []string
-	if cached, ok := c.candidateCache.Load(filePath); ok {
-		candidates = cached.([]string) //nolint:forcetypeassert // always stored as []string
-	} else {
-		candidates = matchCandidates(filePath)
-		c.candidateCache.Store(filePath, candidates)
-	}
-
+	candidates := c.matchCandidates(filePath)
 	if len(candidates) == 0 {
 		return false
 	}
@@ -235,6 +258,60 @@ func (c *Config) ShouldExclude(filePath string) bool {
 		}
 	}
 	return false
+}
+
+// IsMigrationPath reports whether filePath should contribute to schema
+// accumulation as migration SQL. Plain patterns such as "db/migrations" match
+// any SQL file under that directory; glob patterns are also supported.
+func (c *Config) IsMigrationPath(filePath string) bool {
+	if strings.ToLower(path.Ext(normalizeMatchPath(filePath))) != ".sql" {
+		return false
+	}
+
+	candidates := c.matchCandidates(filePath)
+	if len(candidates) == 0 {
+		return false
+	}
+
+	patterns := c.MigrationPaths
+	if len(patterns) == 0 {
+		patterns = DefaultMigrationPaths()
+	}
+
+	for _, rawPattern := range patterns {
+		pattern := normalizeMatchPath(rawPattern)
+		if pattern == "" {
+			continue
+		}
+		if hasGlobMeta(pattern) {
+			for _, candidate := range candidates {
+				if matchGlob(pattern, candidate) {
+					return true
+				}
+			}
+			continue
+		}
+
+		for _, candidate := range candidates {
+			if candidate == pattern || strings.HasPrefix(candidate, pattern+"/") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// matchCandidates memoizes normalized path variants used for exclude and
+// migration-path matching.
+func (c *Config) matchCandidates(filePath string) []string {
+	if cached, ok := c.candidateCache.Load(filePath); ok {
+		return cached.([]string) //nolint:forcetypeassert // always stored as []string
+	}
+
+	candidates := matchCandidates(filePath)
+	c.candidateCache.Store(filePath, candidates)
+	return candidates
 }
 
 // normalizeMatchPath converts filesystem paths and patterns into a stable
@@ -302,6 +379,11 @@ func matchGlob(pattern, filePath string) bool {
 		return true
 	}
 	return false
+}
+
+// hasGlobMeta reports whether pattern contains glob metacharacters.
+func hasGlobMeta(pattern string) bool {
+	return strings.ContainsAny(pattern, "*?[")
 }
 
 // matchDoubleStarGlob handles glob patterns containing one or more "**"

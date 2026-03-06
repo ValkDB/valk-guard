@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/valkdb/valk-guard/internal/scanner"
@@ -73,7 +74,7 @@ func TestUnknownProjectionColumnRule(t *testing.T) {
 				Line: 12,
 			}
 			parsed := parseSQL(t, tt.sql)
-			findings := rule.CheckQuerySchema(snap, &stmt, parsed)
+			findings := rule.CheckQuerySchema(context.Background(), snap, &stmt, parsed)
 			if len(findings) != tt.wantCount {
 				t.Fatalf("got %d findings, want %d: %+v", len(findings), tt.wantCount, findings)
 			}

@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/valkdb/valk-guard/internal/schema"
@@ -27,7 +28,7 @@ func TestDuplicateModelColumnMappingRule(t *testing.T) {
 		},
 	}
 
-	findings := rule.CheckSchema(nil, models)
+	findings := rule.CheckSchema(context.Background(), nil, models)
 	if len(findings) != 1 {
 		t.Fatalf("got %d findings, want 1: %+v", len(findings), findings)
 	}
@@ -51,7 +52,7 @@ func TestDuplicateModelColumnMappingRule_NoDuplicates(t *testing.T) {
 		},
 	}
 
-	if findings := rule.CheckSchema(nil, models); len(findings) != 0 {
+	if findings := rule.CheckSchema(context.Background(), nil, models); len(findings) != 0 {
 		t.Fatalf("expected no findings, got %+v", findings)
 	}
 }

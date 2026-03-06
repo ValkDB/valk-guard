@@ -15,6 +15,12 @@ exclude:
   - "*.gen.sql"
   - "testdata/**"
 
+# Optional: limit which SQL files are treated as migrations for schema-aware
+# rules. If omitted, Valk Guard falls back to: migrations/, migration/, migrate/
+migration_paths:
+  - "db/migrations"
+  - "schema/**/*.sql"
+
 # Go model extraction behavior
 go_model:
   # strict | balanced | permissive

@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"strings"
 
 	"github.com/valkdb/valk-guard/internal/schema"
@@ -15,7 +16,7 @@ type SchemaRule interface {
 	Name() string
 	Description() string
 	DefaultSeverity() Severity
-	CheckSchema(snap *schema.Snapshot, models []schema.ModelDef) []Finding
+	CheckSchema(ctx context.Context, snap *schema.Snapshot, models []schema.ModelDef) []Finding
 }
 
 // matchTable resolves a model table name to a schema table using exact

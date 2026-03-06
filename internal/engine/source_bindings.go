@@ -1,7 +1,7 @@
 // Copyright 2025 ValkDB
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package engine
 
 import (
 	"path/filepath"
@@ -40,10 +40,12 @@ type scannerInputs struct {
 	byExt map[string][]string
 }
 
+// newScannerInputs constructs an empty extension-to-files index.
 func newScannerInputs() scannerInputs {
 	return scannerInputs{byExt: make(map[string][]string)}
 }
 
+// normalizeExt canonicalizes file extensions for input bucketing.
 func normalizeExt(ext string) string {
 	ext = strings.ToLower(strings.TrimSpace(ext))
 	if ext == "" {
@@ -55,8 +57,8 @@ func normalizeExt(ext string) string {
 	return ext
 }
 
-// filesForExtensions returns a sorted, deduplicated list of files collected for
-// the given extensions.
+// filesForExtensions returns a sorted, deduplicated list of files collected
+// for the given extensions.
 func (in scannerInputs) filesForExtensions(exts []string) []string {
 	if len(exts) == 0 {
 		return nil
@@ -82,6 +84,8 @@ func (in scannerInputs) filesForExtensions(exts []string) []string {
 	return out
 }
 
+// defaultScannerBindings returns the built-in source scanners and their file
+// extensions.
 func defaultScannerBindings() []scannerBinding {
 	return []scannerBinding{
 		{name: "sql", impl: &scanner.RawSQLScanner{}, extensions: []string{".sql"}},
@@ -91,6 +95,8 @@ func defaultScannerBindings() []scannerBinding {
 	}
 }
 
+// defaultModelBindings returns the built-in model extractors and their engine
+// mappings for schema-aware analysis.
 func defaultModelBindings(cfg *config.Config) []modelBinding {
 	return []modelBinding{
 		{
@@ -110,6 +116,8 @@ func defaultModelBindings(cfg *config.Config) []modelBinding {
 	}
 }
 
+// requiredExtensions returns the set of file extensions needed for all active
+// scanners and model extractors.
 func requiredExtensions(scannerBindings []scannerBinding, modelBindings []modelBinding) []string {
 	seen := make(map[string]struct{})
 	var out []string
@@ -139,6 +147,8 @@ func requiredExtensions(scannerBindings []scannerBinding, modelBindings []modelB
 	return out
 }
 
+// sourceConfigEngines maps each model source to the config engines that should
+// enable schema rules for it.
 func sourceConfigEngines(bindings []modelBinding) map[schema.ModelSource][]scanner.Engine {
 	result := make(map[schema.ModelSource][]scanner.Engine)
 	seen := make(map[schema.ModelSource]map[scanner.Engine]struct{})
@@ -158,6 +168,8 @@ func sourceConfigEngines(bindings []modelBinding) map[schema.ModelSource][]scann
 	return result
 }
 
+// sourceQueryEngines maps query engines to the model sources that can augment
+// them during query-schema analysis.
 func sourceQueryEngines(bindings []modelBinding) map[scanner.Engine][]schema.ModelSource {
 	result := make(map[scanner.Engine][]schema.ModelSource)
 	seen := make(map[scanner.Engine]map[schema.ModelSource]struct{})

@@ -5,6 +5,7 @@
 package scannertest
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -49,7 +50,7 @@ func CollectFindingsByRule(t *testing.T, stmts []scanner.SQLStatement) map[strin
 			continue
 		}
 		for _, rule := range reg.All() {
-			finds := rule.Check(parsed, stmt.File, stmt.Line, stmt.SQL)
+			finds := rule.Check(context.Background(), parsed, stmt.File, stmt.Line, stmt.SQL)
 			if len(finds) > 0 {
 				findingsByRule[rule.ID()] += len(finds)
 			}

@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -54,7 +55,7 @@ func TestAmbiguousUnqualifiedColumnRule(t *testing.T) {
 
 			stmt := scanner.SQLStatement{SQL: tt.sql, File: "query.sql", Line: 4}
 			parsed := parseSQL(t, tt.sql)
-			findings := rule.CheckQuerySchema(snap, &stmt, parsed)
+			findings := rule.CheckQuerySchema(context.Background(), snap, &stmt, parsed)
 			if len(findings) != tt.wantCount {
 				t.Fatalf("got %d findings, want %d: %+v", len(findings), tt.wantCount, findings)
 			}

@@ -10,8 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/valkdb/valk-guard/internal/rules"
-	"github.com/valkdb/valk-guard/internal/scanner"
+	"github.com/valkdb/valk-guard/internal/config"
 )
 
 func TestRunScanJSONFindingsExitCode(t *testing.T) {
@@ -119,33 +118,6 @@ func TestRunScanExcludedBrokenGoFileDoesNotFail(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("expected empty stderr, got %q", stderr.String())
-	}
-}
-
-func TestApplyStatementRange(t *testing.T) {
-	findings := []rules.Finding{
-		{
-			RuleID:  "VG106",
-			File:    "complex_queries.sql",
-			Line:    21,
-			Column:  1,
-			Message: "unknown filter column",
-		},
-	}
-
-	applyStatementRange(findings, &scanner.SQLStatement{
-		File:      "complex_queries.sql",
-		Line:      21,
-		Column:    5,
-		EndLine:   26,
-		EndColumn: 9,
-	})
-
-	if findings[0].Column != 5 {
-		t.Fatalf("expected statement start column to propagate, got %d", findings[0].Column)
-	}
-	if findings[0].EndLine != 26 || findings[0].EndColumn != 9 {
-		t.Fatalf("expected statement end range to propagate, got end=%d:%d", findings[0].EndLine, findings[0].EndColumn)
 	}
 }
 
@@ -881,7 +853,7 @@ func TestRunScanOutputFileCreatedOnSuccess(t *testing.T) {
 	}
 }
 
-func TestIsMigrationSQLFile(t *testing.T) {
+func TestDefaultMigrationPaths(t *testing.T) {
 	tests := []struct {
 		path string
 		want bool
@@ -893,9 +865,10 @@ func TestIsMigrationSQLFile(t *testing.T) {
 		{path: "/repo/db/migrations/readme.txt", want: false},
 	}
 
+	cfg := config.Default()
 	for _, tt := range tests {
-		if got := isMigrationSQLFile(tt.path); got != tt.want {
-			t.Errorf("isMigrationSQLFile(%q) = %v, want %v", tt.path, got, tt.want)
+		if got := cfg.IsMigrationPath(tt.path); got != tt.want {
+			t.Errorf("IsMigrationPath(%q) = %v, want %v", tt.path, got, tt.want)
 		}
 	}
 }

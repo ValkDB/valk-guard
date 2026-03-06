@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/valkdb/postgresparser"
@@ -31,6 +32,7 @@ func (r *UnknownTableReferenceRule) DefaultSeverity() Severity { return Severity
 
 // CheckQuerySchema validates referenced tables against the schema snapshot.
 func (r *UnknownTableReferenceRule) CheckQuerySchema(
+	_ context.Context,
 	snap *schema.Snapshot,
 	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,

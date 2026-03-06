@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"testing"
 
 	"github.com/valkdb/valk-guard/internal/schema"
@@ -21,7 +22,7 @@ func TestOrphanMigrationTableRule(t *testing.T) {
 		{Table: "users", Source: schema.ModelSourceGo, File: "go/models.go", Line: 3},
 	}
 
-	findings := rule.CheckSchema(snap, models)
+	findings := rule.CheckSchema(context.Background(), snap, models)
 	if len(findings) != 1 {
 		t.Fatalf("got %d findings, want 1: %+v", len(findings), findings)
 	}
@@ -37,7 +38,7 @@ func TestOrphanMigrationTableRule_NoModels(t *testing.T) {
 	snap := schema.NewSnapshot()
 	snap.ApplyCreateTable("users", []schema.ColumnDef{{Name: "id", Type: "integer"}}, "migrations/001.sql", 1)
 
-	findings := rule.CheckSchema(snap, nil)
+	findings := rule.CheckSchema(context.Background(), snap, nil)
 	if len(findings) != 0 {
 		t.Fatalf("expected no findings, got %+v", findings)
 	}

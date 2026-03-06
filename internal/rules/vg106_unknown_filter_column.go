@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/valkdb/postgresparser"
@@ -31,6 +32,7 @@ func (r *UnknownFilterColumnRule) DefaultSeverity() Severity { return SeverityEr
 
 // CheckQuerySchema validates filter and join column usages against the schema.
 func (r *UnknownFilterColumnRule) CheckQuerySchema(
+	_ context.Context,
 	snap *schema.Snapshot,
 	stmt *scanner.SQLStatement,
 	parsed *postgresparser.ParsedQuery,

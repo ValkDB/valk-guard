@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // LikeLeadingWildcardRule detects LIKE/ILIKE patterns that begin with '%'.
 type LikeLeadingWildcardRule struct{}
@@ -34,7 +38,7 @@ func (r *LikeLeadingWildcardRule) CommandTargets() []postgresparser.QueryCommand
 }
 
 // Check reports a finding when any parsed predicate uses LIKE/ILIKE '%...'.
-func (r *LikeLeadingWildcardRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+func (r *LikeLeadingWildcardRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil {
 		return nil
 	}

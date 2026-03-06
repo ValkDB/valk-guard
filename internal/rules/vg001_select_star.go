@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // SelectStarRule detects SELECT * usage in query projections.
 type SelectStarRule struct{}
@@ -26,7 +30,7 @@ func (r *SelectStarRule) CommandTargets() []postgresparser.QueryCommand {
 }
 
 // Check reports a finding when a SELECT statement projects "*" or "<alias>.*".
-func (r *SelectStarRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+func (r *SelectStarRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandSelect {
 		return nil
 	}

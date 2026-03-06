@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // MissingWhereUpdateRule detects UPDATE statements without a WHERE clause.
 type MissingWhereUpdateRule struct{}
@@ -27,12 +31,13 @@ func (r *MissingWhereUpdateRule) CommandTargets() []postgresparser.QueryCommand 
 	return []postgresparser.QueryCommand{postgresparser.QueryCommandUpdate}
 }
 
-// Check reports a finding when UPDATE has no WHERE/CURRENT OF predicate.
-func (r *MissingWhereUpdateRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+// Check reports a finding when UPDATE has no restrictive WHERE/CURRENT OF
+// predicate.
+func (r *MissingWhereUpdateRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandUpdate {
 		return nil
 	}
-	if hasClause(parsed.Where) {
+	if hasRestrictiveClause(parsed.Where) {
 		return nil
 	}
 	return []Finding{

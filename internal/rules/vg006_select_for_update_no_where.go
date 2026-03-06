@@ -3,7 +3,11 @@
 
 package rules
 
-import "github.com/valkdb/postgresparser"
+import (
+	"context"
+
+	"github.com/valkdb/postgresparser"
+)
 
 // SelectForUpdateNoWhereRule detects SELECT FOR UPDATE without WHERE.
 type SelectForUpdateNoWhereRule struct{}
@@ -28,11 +32,11 @@ func (r *SelectForUpdateNoWhereRule) CommandTargets() []postgresparser.QueryComm
 }
 
 // Check reports a finding for SELECT FOR UPDATE statements lacking WHERE.
-func (r *SelectForUpdateNoWhereRule) Check(parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
+func (r *SelectForUpdateNoWhereRule) Check(_ context.Context, parsed *postgresparser.ParsedQuery, file string, line int, rawSQL string) []Finding {
 	if parsed == nil || parsed.Command != postgresparser.QueryCommandSelect {
 		return nil
 	}
-	if !hasForUpdateClause(rawSQL) || hasClause(parsed.Where) {
+	if !hasForUpdateClause(rawSQL) || hasRestrictiveClause(parsed.Where) {
 		return nil
 	}
 	// Bounded locking queries are common worker patterns and are intentionally

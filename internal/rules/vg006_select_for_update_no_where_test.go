@@ -3,7 +3,10 @@
 
 package rules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // TestSelectForUpdateNoWhereRule validates FOR UPDATE without WHERE detection.
 func TestSelectForUpdateNoWhereRule(t *testing.T) {
@@ -70,6 +73,21 @@ func TestSelectForUpdateNoWhereRule(t *testing.T) {
 			wantCount: 1,
 		},
 		{
+			name:      "for update with constant true WHERE 1=1 is flagged",
+			sql:       "SELECT * FROM users WHERE 1 = 1 FOR UPDATE",
+			wantCount: 1,
+		},
+		{
+			name:      "for update with constant true WHERE TRUE is flagged",
+			sql:       "SELECT * FROM users WHERE TRUE FOR UPDATE",
+			wantCount: 1,
+		},
+		{
+			name:      "for update with 1=1 AND real predicate is not flagged",
+			sql:       "SELECT * FROM users WHERE 1 = 1 AND id = 5 FOR UPDATE",
+			wantCount: 0,
+		},
+		{
 			name:      "nil parsed query",
 			sql:       "",
 			wantCount: 0,
@@ -80,10 +98,10 @@ func TestSelectForUpdateNoWhereRule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var findings []Finding
 			if tt.name == "nil parsed query" {
-				findings = rule.Check(nil, "query.sql", 42, tt.sql)
+				findings = rule.Check(context.Background(), nil, "query.sql", 42, tt.sql)
 			} else {
 				parsed := parseSQL(t, tt.sql)
-				findings = rule.Check(parsed, "query.sql", 42, tt.sql)
+				findings = rule.Check(context.Background(), parsed, "query.sql", 42, tt.sql)
 			}
 
 			if len(findings) != tt.wantCount {

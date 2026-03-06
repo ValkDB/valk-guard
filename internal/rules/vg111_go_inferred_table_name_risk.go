@@ -4,6 +4,7 @@
 package rules
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/valkdb/valk-guard/internal/schema"
@@ -29,7 +30,7 @@ func (r *GoInferredTableNameRiskRule) DefaultSeverity() Severity { return Severi
 
 // CheckSchema reports a warning when a Go model has inferred mappings and no
 // explicit table mapping.
-func (r *GoInferredTableNameRiskRule) CheckSchema(_ *schema.Snapshot, models []schema.ModelDef) []Finding {
+func (r *GoInferredTableNameRiskRule) CheckSchema(_ context.Context, _ *schema.Snapshot, models []schema.ModelDef) []Finding {
 	findings := make([]Finding, 0, len(models))
 
 	for _, model := range models {

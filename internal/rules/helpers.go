@@ -17,6 +17,10 @@ var (
 	likeLeadingWildcardPattern = regexp.MustCompile(`(?is)\b(?:NOT\s+)?I?LIKE\s+E?'\s*%`)
 	// forUpdatePattern matches SELECT ... FOR UPDATE locking clauses.
 	forUpdatePattern = regexp.MustCompile(`(?i)\bFOR\s+UPDATE\b`)
+	// constantTruePattern matches simple tautologies that are commonly used as
+	// placeholder WHERE predicates.
+	constantTruePattern    = regexp.MustCompile(`(?i)^(?:true|1\s*=\s*1|not\s+false)$`)
+	numericEqualityPattern = regexp.MustCompile(`^(\d+)\s*=\s*(\d+)$`)
 )
 
 // newFinding builds a standardized Finding object with default column 1.
@@ -43,14 +47,89 @@ func isWildcardProjection(expr string) bool {
 	return strings.HasSuffix(trimmed, ".*")
 }
 
-// hasClause reports whether at least one non-empty clause string exists.
-func hasClause(items []string) bool {
+// hasRestrictiveClause reports whether at least one clause is non-empty and not
+// an always-true placeholder such as TRUE or 1=1.
+func hasRestrictiveClause(items []string) bool {
 	for _, item := range items {
-		if strings.TrimSpace(item) != "" {
+		if clause := strings.TrimSpace(item); clause != "" && !isConstantTrueClause(clause) {
 			return true
 		}
 	}
 	return false
+}
+
+// isConstantTrueClause reports whether clause is a simple tautology that does
+// not materially restrict a write statement.
+func isConstantTrueClause(clause string) bool {
+	normalized := normalizePredicateForMatch(clause)
+	if normalized == "" {
+		return false
+	}
+	if constantTruePattern.MatchString(normalized) {
+		return true
+	}
+
+	matches := numericEqualityPattern.FindStringSubmatch(normalized)
+	if len(matches) != 3 {
+		return false
+	}
+	return canonicalIntLiteral(matches[1]) == canonicalIntLiteral(matches[2])
+}
+
+// normalizePredicateForMatch strips comments, outer parens, and redundant
+// whitespace so placeholder predicates can be matched reliably.
+func normalizePredicateForMatch(clause string) string {
+	clause = stripSQL(clause, true)
+	clause = strings.TrimSpace(strings.ToLower(clause))
+	for _, prefix := range []string{"where ", "having "} {
+		if strings.HasPrefix(clause, prefix) {
+			clause = strings.TrimSpace(strings.TrimPrefix(clause, prefix))
+			break
+		}
+	}
+	for {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(strings.TrimSuffix(clause, ")"), "("))
+		if trimmed == clause {
+			break
+		}
+		if !wrappedBySingleParens(clause) {
+			break
+		}
+		clause = trimmed
+	}
+	return strings.Join(strings.Fields(clause), " ")
+}
+
+// wrappedBySingleParens reports whether s is enclosed by one outermost pair of
+// parentheses with no trailing content outside that pair.
+func wrappedBySingleParens(s string) bool {
+	if len(s) < 2 || s[0] != '(' || s[len(s)-1] != ')' {
+		return false
+	}
+	depth := 0
+	for i, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 && i < len(s)-1 {
+				return false
+			}
+		}
+		if depth < 0 {
+			return false
+		}
+	}
+	return depth == 0
+}
+
+func canonicalIntLiteral(s string) string {
+	s = strings.TrimLeft(s, "0")
+	if s == "" {
+		return "0"
+	}
+	return s
 }
 
 // hasLimitClause reports whether a parsed SELECT has a top-level LIMIT/FETCH.
@@ -256,12 +335,6 @@ func skipDoubleQuoted(sql string, i int, b *strings.Builder) int {
 	}
 	b.WriteByte(' ')
 	return i
-}
-
-// stripSQLComments is a convenience wrapper that removes only comments,
-// preserving string literals and identifiers.
-func stripSQLComments(sql string) string {
-	return stripSQL(sql, false)
 }
 
 // scanDollarQuoteTag checks whether sql[pos] starts a valid dollar-quote tag.
