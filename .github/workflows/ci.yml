@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: '1.25.6'
+          go-version: '1.25.8'
           cache-dependency-path: valk-guard/go.sum
 
       - name: golangci-lint
@@ -44,7 +44,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: '1.25.6'
+          go-version: '1.25.8'
           cache-dependency-path: valk-guard/go.sum
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -79,7 +79,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: '1.25.6'
+          go-version: '1.25.8'
           cache-dependency-path: valk-guard/go.sum
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -117,7 +117,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: '1.25.6'
+          go-version: '1.25.8'
           cache-dependency-path: valk-guard/go.sum
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -212,7 +212,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: '1.25.6'
+          go-version: '1.25.8'
           cache-dependency-path: valk-guard/go.sum
 
       - name: Build
