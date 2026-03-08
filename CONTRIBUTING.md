@@ -5,7 +5,7 @@ Thanks for your interest in contributing!
 ## Getting Started
 
 1. Fork the repo and clone your fork
-2. Ensure Go 1.25.6 is installed
+2. Ensure Go 1.25.8 is installed
 3. Ensure `python3` is available (required for SQLAlchemy scanner tests)
 4. Run `make check` to verify everything builds and passes
 

@@ -52,8 +52,18 @@ That means: if your ORM builds a `DELETE` without a `WHERE`, Valk Guard catches 
 # Install
 go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
 
+# If this is your first Go-installed CLI, add the Go bin dir to PATH.
+# Default location: $(go env GOPATH)/bin
+export PATH="$(go env GOPATH)/bin:$PATH"
+
 # Scan your project
 valk-guard scan .
+
+# Scan only a specific folder
+valk-guard scan ./migrations
+
+# Scan only a specific file
+valk-guard scan ./queries/report.sql
 
 # JSON for CI pipelines
 valk-guard scan . --format json
@@ -66,6 +76,14 @@ valk-guard scan . --format sarif --output results.sarif
 ```
 
 That's it. All 19 rules are enabled by default.
+
+Pass one or more paths to scan only part of a repo:
+
+```bash
+valk-guard scan ./migrations
+valk-guard scan ./queries/report.sql
+valk-guard scan ./migrations ./internal
+```
 
 ---
 
@@ -221,6 +239,22 @@ Grab a pre-built binary from [GitHub Releases](https://github.com/ValkDB/valk-gu
 go install github.com/valkdb/valk-guard/cmd/valk-guard@latest
 ```
 
+If `valk-guard` is still not found, the install likely succeeded but your Go bin directory is not on `PATH` yet.
+
+macOS / Linux:
+
+```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+Windows PowerShell:
+
+```powershell
+$env:Path += ";$(go env GOPATH)\bin"
+```
+
+If you use `GOBIN`, add that directory instead of `$(go env GOPATH)/bin`.
+
 ### Pin in CI (recommended)
 
 ```bash
@@ -235,12 +269,24 @@ Why pin: avoids surprise behavior changes, keeps output processing stable, makes
 git clone https://github.com/ValkDB/valk-guard.git
 cd valk-guard
 make build
+
+# Try the built-in sample inputs in this repo.
+# These intentionally produce findings, so exit code 1 is expected.
+./valk-guard scan testdata/sql
+./valk-guard scan testdata/python
+
+# Or scan the whole repo / a specific path in your own project.
+./valk-guard scan .
+./valk-guard scan ./path/to/folder
+./valk-guard scan ./path/to/file.sql
+
+# Optional: install into GOBIN or $(go env GOPATH)/bin
 make install
 ```
 
 ### Requirements
 
-- **Go >= 1.25.6** for building from source
+- **Go >= 1.25.8** for building from source
 - **Python >= 3.6** only when scanning `.py` files for SQLAlchemy usage. No pip packages needed — Valk Guard ships an embedded script using only stdlib (`ast`, `json`). If scanned `.py` files are present and `python3` is missing or too old, the scan fails fast with an error.
 
 ---

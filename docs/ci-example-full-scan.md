@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.25.6"
+          go-version: "1.25.8"
 
       - name: Install valk-guard
         run: go install github.com/valkdb/valk-guard/cmd/valk-guard@${VALK_GUARD_INSTALL_REF}

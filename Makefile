@@ -2,7 +2,7 @@
 
 BINARY := valk-guard
 CMD    := ./cmd/valk-guard
-REQUIRED_GO_VERSION := 1.25.6
+REQUIRED_GO_VERSION := 1.25.8
 GO_VERSION := $(shell go env GOVERSION 2>/dev/null | sed 's/^go//')
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
@@ -47,6 +47,10 @@ tidy:
 
 install: verify-go-version
 	go install -ldflags "$(LDFLAGS)" $(CMD)
+	@bin_dir="$$(go env GOBIN)"; \
+	if [ -z "$$bin_dir" ]; then bin_dir="$$(go env GOPATH)/bin"; fi; \
+	echo "Installed $(BINARY) to $$bin_dir"; \
+	echo "Add $$bin_dir to PATH if '$(BINARY)' is not found."
 
 clean:
 	rm -f $(BINARY) coverage.out
