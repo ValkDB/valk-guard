@@ -34,9 +34,9 @@ rules:
   VG001:
     enabled: true
     severity: warning
-    engines: [all] # all | sql | go | goqu | sqlalchemy
+    engines: [all] # all | sql | go | goqu | sqlalchemy | csharp
   VG005:
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG007:
     enabled: false
 ```
@@ -85,16 +85,16 @@ rules:
     engines: [sqlalchemy] # explicit table mappings only
   VG105:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG106:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG107:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG108:
     severity: warning
-    engines: [sql, go, goqu, sqlalchemy]
+    engines: [sql, go, goqu, sqlalchemy, csharp]
   VG109:
     severity: warning
   VG110:
@@ -114,7 +114,7 @@ Schema-aware rules honor per-rule `engines` filtering:
 
 - `go` applies to models extracted from Go `db` tags.
 - `sqlalchemy` applies to models extracted from Python SQLAlchemy code.
-- `sql`, `go`, `goqu`, and `sqlalchemy` apply to query-schema statement sources.
+- `sql`, `go`, `goqu`, `sqlalchemy`, and `csharp` apply to query-schema statement sources.
 
 ## Goqu SELECT * Noise
 
@@ -125,7 +125,7 @@ To suppress VG001 for Goqu while keeping it active for other engines:
 ```yaml
 rules:
   VG001:
-    engines: [sql, go, sqlalchemy]  # exclude goqu
+    engines: [sql, go, sqlalchemy, csharp]  # exclude goqu
 ```
 
 ## Current Limitation

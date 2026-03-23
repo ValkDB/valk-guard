@@ -39,31 +39,7 @@ type GoScanner struct{}
 
 var errGoScannerStop = errors.New("go scanner stop")
 
-// sqlKeywordSet maps known SQL statement-opening keywords to an empty struct
-// for O(1) lookup. The looksLikeSQL function extracts the first word from the
-// input and checks for membership here instead of iterating a slice.
-var sqlKeywordSet = map[string]struct{}{
-	"SELECT":   {},
-	"INSERT":   {},
-	"UPDATE":   {},
-	"DELETE":   {},
-	"CREATE":   {},
-	"DROP":     {},
-	"ALTER":    {},
-	"TRUNCATE": {},
-	"WITH":     {},
-	"GRANT":    {},
-	"REVOKE":   {},
-	"BEGIN":    {},
-	"COMMIT":   {},
-	"ROLLBACK": {},
-	"SET":      {},
-	"COPY":     {},
-	"VACUUM":   {},
-	"ANALYZE":  {},
-	"EXPLAIN":  {},
-	"MERGE":    {},
-}
+// SQL keyword set and LooksLikeSQL are defined in sql_heuristic.go.
 
 // Scan walks the given paths, finds .go files, and streams SQL strings.
 func (s *GoScanner) Scan(ctx context.Context, paths []string) iter.Seq2[SQLStatement, error] {
@@ -157,39 +133,5 @@ func findSQLArg(call *ast.CallExpr, spec dbMethodSpec) string {
 	return ExtractStringLiteral(lit)
 }
 
-// looksLikeSQL reports whether the string appears to be a SQL statement
-// by checking for common starting keywords or comments.
-// It extracts only the first word (letters A-Z) and performs an O(1) map
-// lookup instead of a linear scan over all keywords.
-func looksLikeSQL(s string) bool {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return false
-	}
-	// Allow SQL line/block comments as valid statement starts.
-	if strings.HasPrefix(s, "--") || strings.HasPrefix(s, "/*") {
-		return true
-	}
-	upper := strings.ToUpper(s)
-	// Extract the leading alphabetic word (SQL keywords are all letters).
-	end := 0
-	for end < len(upper) && upper[end] >= 'A' && upper[end] <= 'Z' {
-		end++
-	}
-	if end == 0 {
-		return false
-	}
-	// Ensure the keyword is not a prefix of a longer identifier (e.g. "SELECTOR").
-	if end < len(upper) && isIdentChar(upper[end]) {
-		return false
-	}
-	_, ok := sqlKeywordSet[upper[:end]]
-	return ok
-}
-
-func isIdentChar(c byte) bool {
-	return (c >= 'a' && c <= 'z') ||
-		(c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') ||
-		c == '_'
-}
+// looksLikeSQL delegates to the shared LooksLikeSQL in sql_heuristic.go.
+func looksLikeSQL(s string) bool { return LooksLikeSQL(s) }

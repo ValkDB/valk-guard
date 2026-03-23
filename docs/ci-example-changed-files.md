@@ -1,6 +1,6 @@
 ## CI Example: Changed-Files-Only PR Scan
 
-Copy-paste this when you want PR scans to look only at changed `.sql`, `.go`, and `.py` files.
+Copy-paste this when you want PR scans to look only at changed `.sql`, `.go`, `.py`, and `.cs` files.
 
 Use it when:
 
@@ -47,6 +47,7 @@ jobs:
             **/*.sql
             **/*.go
             **/*.py
+            **/*.cs
 
       - uses: reviewdog/action-setup@v1
         if: steps.changed.outputs.any_changed == 'true'

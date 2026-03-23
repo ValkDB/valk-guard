@@ -46,7 +46,7 @@ rules:
   # Query-schema examples
   VG105:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG106:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
