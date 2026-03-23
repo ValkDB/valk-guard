@@ -6,7 +6,7 @@
 
 ## What It Does
 
-Valk Guard acts as a static gatekeeper for your database. It scans your codebase (Go, Python, SQL), extracts database interactions, parses them using a formal PostgreSQL grammar, and runs them against a suite of performance-focused rules.
+Valk Guard acts as a static gatekeeper for your database. It scans your codebase (Go, Python, SQL, C#), extracts database interactions, parses them using a formal PostgreSQL grammar, and runs them against a suite of performance-focused rules.
 
 ### Core Value Proposition
 - **Prevent Outages**: Catch `UPDATE` or `DELETE` statements missing a `WHERE` clause.
@@ -28,20 +28,21 @@ graph TD
         B -->|.go| D[Go AST Scanner]
         B -->|.go| E[Goqu Synth Scanner]
         B -->|.py| F[SQLAlchemy Scanner]
+        B -->|.cs| G[C# EF Core Scanner]
     end
 
     subgraph "2. Analysis Engine"
-        C & D & E & F -->|SQL Stream| G[Valk PG Parser]
-        G -->|AST| H[Rule Engine]
-        H -->|Findings| I[Deduplicator]
+        C & D & E & F & G -->|SQL Stream| H[Valk PG Parser]
+        H -->|AST| I[Rule Engine]
+        I -->|Findings| J[Deduplicator]
     end
 
     subgraph "3. Reporting"
-        I --> J{Output Format}
-        J -->|Terminal| K[Human Readable]
-        J -->|JSON| L[Machine Readable]
-        J -->|SARIF| M[GitHub Code Scanning]
-        J -->|rdjsonl| N[reviewdog PR Review]
+        J --> K{Output Format}
+        K -->|Terminal| L[Human Readable]
+        K -->|JSON| M[Machine Readable]
+        K -->|SARIF| N[GitHub Code Scanning]
+        K -->|rdjsonl| O[reviewdog PR Review]
     end
 ```
 
@@ -55,6 +56,7 @@ graph TD
 | **Go Standard** | `go/ast` | Extracts SQL literals from `db.Query`, `db.Exec`, `sqlx`, etc. |
 | **Goqu** | Synthesis | Analyzes Goqu method chains to generate synthetic SQL for analysis. |
 | **SQLAlchemy** | Python AST | Invokes a Python sub-process to extract SQL from `text()` and ORM chains. |
+| **C# (EF Core)** | Text Analysis | Extracts SQL from `ExecuteSqlRaw`, `ExecuteSqlInterpolated`, and async variants. v1: raw SQL execution only. |
 
 ---
 
@@ -146,3 +148,4 @@ You can disable rules for specific lines using comments:
 - **SQL**: `-- valk-guard:disable VG001`
 - **Go**: `// valk-guard:disable VG001`
 - **Python**: `# valk-guard:disable VG001`
+- **C#**: `// valk-guard:disable VG001`

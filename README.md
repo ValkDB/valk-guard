@@ -25,9 +25,9 @@
 
 ## Why Valk Guard?
 
-**Most SQL linters use regex and only see raw `.sql` files. Valk Guard compiles your code and walks the AST.**
+**Most SQL linters use regex and only see raw `.sql` files. Valk Guard parses real source structure instead.**
 
-It reads Goqu builder chains, SQLAlchemy ORM calls, and Go `db.Query` invocations — not by pattern-matching strings, but by parsing the actual abstract syntax tree. It synthesizes SQL from your ORM code, feeds it through a real PostgreSQL grammar, and runs every rule against it.
+It reads Goqu builder chains, SQLAlchemy ORM calls, Go `db.Query` invocations, and C# EF Core `ExecuteSqlRaw` calls with source-aware scanners — Go and Python via AST, C# v1 via conservative text analysis of raw EF Core execution patterns. It synthesizes SQL from your ORM code, feeds it through a real PostgreSQL grammar, and runs every rule against it.
 
 That means: if your ORM builds a `DELETE` without a `WHERE`, Valk Guard catches it — even though no raw SQL exists anywhere in your source.
 
@@ -106,9 +106,9 @@ Valk Guard ships with **19 rules** across three categories. Here are the highlig
 
 ---
 
-## Not Regex — Real AST Analysis
+## Not Regex — Source-Aware Analysis
 
-Most SQL linters use regex. Valk Guard **compiles and walks the actual AST** of your Go and Python code. It understands ORM builder chains as first-class SQL — no raw strings required.
+Most SQL linters use regex. Valk Guard **walks real source structure** instead. It compiles and walks the actual AST of your Go and Python code, and for C# v1 it uses conservative text analysis of EF Core raw SQL execution calls. It understands ORM builder chains and raw execution APIs as first-class SQL sources — no `.sql` file required.
 
 <table>
 <tr>
@@ -137,7 +137,7 @@ Most SQL linters use regex. Valk Guard **compiles and walks the actual AST** of 
 </tr>
 </table>
 
-No raw SQL in those files. Valk Guard synthesizes SQL from the ORM calls, parses it with a PostgreSQL grammar, and runs all 19 rules against it (a handful of checks use targeted regex on parser-extracted clauses when the AST doesn't expose the needed field, but source scanning is always AST-based).
+No raw SQL in those files. Valk Guard synthesizes SQL from the ORM calls, parses it with a PostgreSQL grammar, and runs all 19 rules against it (a handful of checks use targeted regex on parser-extracted clauses when the AST doesn't expose the needed field; Go/Python source scanning is AST-based, while C# v1 uses conservative text analysis for EF Core raw SQL execution).
 
 | Source | How it works |
 |--------|-------------|
@@ -145,8 +145,11 @@ No raw SQL in those files. Valk Guard synthesizes SQL from the ORM calls, parses
 | **Go** (`go/ast`) | Extracts SQL from `db.Query`, `db.Exec`, `db.QueryRow` and context variants |
 | **Goqu** | Walks builder chains (`From`/`Join`/`Where`/`Limit`/`ForUpdate`) via Go AST |
 | **SQLAlchemy** | Parses ORM chains (`query`/`select`/`join`/`filter`) via Python AST |
+| **C# (EF Core)** | Extracts SQL from `ExecuteSqlRaw`, `ExecuteSqlInterpolated` and async variants via conservative text analysis |
 
 For schema-drift rules (VG101+), it also reads **ORM model definitions** — Go struct tags (`db`, `gorm`) and Python `__tablename__` / `Column(...)` — and cross-references them against your migration DDL.
+
+> **C# note:** v1 covers raw EF Core SQL execution only (`ExecuteSqlRaw`, `ExecuteSqlInterpolated`, and async variants). Query-builder and LINQ patterns are tracked separately.
 
 ---
 
@@ -155,7 +158,7 @@ For schema-drift rules (VG101+), it also reads **ORM model definitions** — Go 
 | | Valk Guard | SQL formatters/linters | DB-connected advisors | Schema-only drift checks |
 |---|---|---|---|---|
 | **Needs a running database** | No | Usually no | Usually yes | Usually no |
-| **Scans app source (`.go`, `.py`)** | Yes | Rarely | No | Rarely |
+| **Scans app source (`.go`, `.py`, `.cs`)** | Yes | Rarely | No | Rarely |
 | **Understands ORM/query builders** | Yes | Rarely | No | Sometimes |
 | **Checks schema drift against models** | Yes | Rarely | Sometimes | Yes |
 | **Fits PR review workflows** | Yes | Often | Sometimes | Often |
@@ -288,6 +291,7 @@ make install
 
 - **Go >= 1.25.8** for building from source
 - **Python >= 3.6** only when scanning `.py` files for SQLAlchemy usage. No pip packages needed — Valk Guard ships an embedded script using only stdlib (`ast`, `json`). If scanned `.py` files are present and `python3` is missing or too old, the scan fails fast with an error.
+- **No external runtime** for C# scanning — the EF Core scanner is a pure Go text-based analyzer, no .NET SDK required.
 
 ---
 
@@ -310,7 +314,7 @@ migration_paths:
 rules:
   VG001:
     severity: warning
-    engines: [all]       # all | sql | go | goqu | sqlalchemy
+    engines: [all]       # all | sql | go | goqu | sqlalchemy | csharp
   VG007:
     enabled: false
 
@@ -327,7 +331,7 @@ Reference: [`.valk-guard.yaml.example`](.valk-guard.yaml.example)
 SELECT * FROM users;
 ```
 
-Works in Go (`//`) and Python (`#`) too. Full guide: [`docs/suppression.md`](docs/suppression.md)
+Works in Go (`//`), Python (`#`), and C# (`//`) too. Full guide: [`docs/suppression.md`](docs/suppression.md)
 
 ### Exit Codes
 
@@ -348,6 +352,7 @@ flowchart LR
     A2["Go code"]
     A3["Goqu usage"]
     A4["Python SQLAlchemy"]
+    A5["C# EF Core"]
   end
 
   subgraph S2["2. Statement Extraction"]
@@ -355,6 +360,7 @@ flowchart LR
     B2["Go AST Scanner"]
     B3["Goqu Scanner"]
     B4["SQLAlchemy Scanner"]
+    B6["C# EF Core Scanner"]
     B5["Statements with file/line mapping"]
   end
 
@@ -384,6 +390,7 @@ flowchart LR
   A2 --> B2 --> B5
   A3 --> B3 --> B5
   A4 --> B4 --> B5
+  A5 --> B6 --> B5
 
   B5 --> C1
   C1 --> D1
@@ -412,6 +419,7 @@ flowchart LR
 
 Track progress and vote on what matters to you:
 
+- C# EF Core query-builder support — `FromSqlRaw`, `SqlQueryRaw`, LINQ patterns
 - GORM scanner — AST-based scanning for GORM builder chains and model extraction
 - Deeper builder semantics — aliases, nested subqueries, richer predicate trees
 - SQLAlchemy 2.0 `mapped_column()` support — modern model extraction

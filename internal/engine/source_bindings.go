@@ -10,6 +10,7 @@ import (
 
 	"github.com/valkdb/valk-guard/internal/config"
 	"github.com/valkdb/valk-guard/internal/scanner"
+	"github.com/valkdb/valk-guard/internal/scanner/csharp"
 	"github.com/valkdb/valk-guard/internal/scanner/goqu"
 	"github.com/valkdb/valk-guard/internal/scanner/sqlalchemy"
 	"github.com/valkdb/valk-guard/internal/schema"
@@ -92,6 +93,7 @@ func defaultScannerBindings() []scannerBinding {
 		{name: "go", impl: &scanner.GoScanner{}, extensions: []string{".go"}},
 		{name: "goqu", impl: &goqu.Scanner{}, extensions: []string{".go"}},
 		{name: "sqlalchemy", impl: &sqlalchemy.Scanner{}, extensions: []string{".py"}},
+		{name: "csharp", impl: &csharp.Scanner{}, extensions: []string{".cs"}},
 	}
 }
 

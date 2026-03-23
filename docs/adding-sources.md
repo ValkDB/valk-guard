@@ -71,8 +71,9 @@ Create `internal/scanner/<source>/...` implementing `Scan(...)`.
 
 Examples:
 
-- `internal/scanner/goqu/goqu_scanner.go`
-- `internal/scanner/sqlalchemy/sqlalchemy_scanner.go`
+- `internal/scanner/goqu/goqu_scanner.go` (Go AST-based)
+- `internal/scanner/sqlalchemy/sqlalchemy_scanner.go` (Python subprocess)
+- `internal/scanner/csharp/scanner.go` (text analysis, no external runtime)
 
 ### 3) Register Scanner Binding
 
