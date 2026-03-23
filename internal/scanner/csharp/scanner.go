@@ -96,7 +96,7 @@ func walkCSFiles(ctx context.Context, paths []string, fn func(string, []byte) er
 			if !isCS(root) {
 				continue
 			}
-			data, err := os.ReadFile(root)
+			data, err := os.ReadFile(root) //nolint:gosec // scanning user-provided source paths
 			if err != nil {
 				return fmt.Errorf("read %s: %w", root, err)
 			}
@@ -106,13 +106,16 @@ func walkCSFiles(ctx context.Context, paths []string, fn func(string, []byte) er
 			continue
 		}
 		if err := filepath.WalkDir(root, func(p string, d fs.DirEntry, we error) error {
-			if we != nil || d.IsDir() || !isCS(p) {
+			if we != nil {
+				return we
+			}
+			if d.IsDir() || !isCS(p) {
 				return nil
 			}
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			data, err := os.ReadFile(p)
+			data, err := os.ReadFile(p) //nolint:gosec // scanning user-provided source paths
 			if err != nil {
 				return fmt.Errorf("read %s: %w", p, err)
 			}
@@ -139,9 +142,10 @@ func extractStatements(path, src string) []scanner.SQLStatement {
 	directives := scanner.ParseDirectives(lines)
 	offsets := buildLineOffsets(src)
 	scopes := collectMethodScopes(src)
+	calls := findCalls(src)
 
-	var stmts []scanner.SQLStatement
-	for _, c := range findCalls(src) {
+	stmts := make([]scanner.SQLStatement, 0, len(calls))
+	for _, c := range calls {
 		scope := findMethodScope(scopes, c.dotPos)
 		if !receiverAllowed(src, c.dotPos, scope) {
 			continue
@@ -227,7 +231,7 @@ func findCalls(src string) []callSite {
 }
 
 // tryMatchCall matches a supported ExecuteSql* invocation at dotPos.
-func tryMatchCall(src string, dotPos int) (callSite, int) {
+func tryMatchCall(src string, dotPos int) (call callSite, next int) {
 	n := len(src)
 	for _, method := range efCoreMethodNames {
 		end := dotPos + 1 + len(method)
@@ -291,7 +295,7 @@ func receiverAllowed(src string, dotPos int, scope *methodScope) bool {
 }
 
 // receiverMembers returns the immediate receiver member and its parent member.
-func receiverMembers(src string, dotPos int) (string, string, bool) {
+func receiverMembers(src string, dotPos int) (member, prev string, ok bool) {
 	j := dotPos - 1
 	for j >= 0 && isWS(src[j]) {
 		j--
@@ -303,7 +307,7 @@ func receiverMembers(src string, dotPos int) (string, string, bool) {
 	for j >= 0 && isIdentByte(src[j]) {
 		j--
 	}
-	member := src[j+1 : end]
+	member = src[j+1 : end]
 
 	k := j
 	for k >= 0 && isWS(src[k]) {
@@ -328,7 +332,7 @@ func receiverMembers(src string, dotPos int) (string, string, bool) {
 
 // extractFirstArg extracts the raw text of the first argument from a call.
 // pos is the position after '('. Returns (argText, closeParenPos).
-func extractFirstArg(src string, pos int) (string, int) {
+func extractFirstArg(src string, pos int) (argText string, closeParenPos int) {
 	n := len(src)
 	depth := 1
 
@@ -544,7 +548,7 @@ func parseExpr(expr string, vars map[string]varDef, isInterp bool, depth int) (s
 // tryParseStringLiteral attempts to parse a C# string literal from the start
 // of s. Returns (content, rest, ok). The content has interpolation expressions
 // replaced with $1, $2 placeholders and escape sequences decoded.
-func tryParseStringLiteral(s string) (string, string, bool) {
+func tryParseStringLiteral(s string) (content, rest string, ok bool) {
 	// $@"..." or @$"..." (verbatim interpolated)
 	if strings.HasPrefix(s, `$@"`) || strings.HasPrefix(s, `@$"`) {
 		content, rest := readVerbInterpStr(s[3:])
@@ -570,7 +574,7 @@ func tryParseStringLiteral(s string) (string, string, bool) {
 		content, rest := readRawStr(s[3:])
 		return content, rest, true
 	}
-	// "..." (regular)
+	// regular string literal
 	if len(s) >= 1 && s[0] == '"' {
 		content, rest := readRegStr(s[1:])
 		return content, rest, true
@@ -584,7 +588,7 @@ func tryParseStringLiteral(s string) (string, string, bool) {
 // ---------------------------------------------------------------------------
 
 // readRegStr reads a regular C# string ("...") starting after the opening ".
-func readRegStr(s string) (string, string) {
+func readRegStr(s string) (content, rest string) {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
@@ -619,7 +623,7 @@ func readRegStr(s string) (string, string) {
 }
 
 // readVerbStr reads a verbatim C# string (@"...") starting after @".
-func readVerbStr(s string) (string, string) {
+func readVerbStr(s string) (content, rest string) {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
 		if s[i] == '"' {
@@ -636,7 +640,7 @@ func readVerbStr(s string) (string, string) {
 }
 
 // readRawStr reads a raw C# string ("""...""") starting after the opening """.
-func readRawStr(s string) (string, string) {
+func readRawStr(s string) (content, rest string) {
 	for i := 0; i+2 < len(s); i++ {
 		if s[i] == '"' && s[i+1] == '"' && s[i+2] == '"' {
 			return trimRawContent(s[:i]), strings.TrimSpace(s[i+3:])
@@ -647,7 +651,7 @@ func readRawStr(s string) (string, string) {
 
 // readInterpStr reads an interpolated C# string ($"...") starting after $".
 // Replaces {expr} with $1, $2, etc.
-func readInterpStr(s string) (string, string) {
+func readInterpStr(s string) (content, rest string) {
 	var b strings.Builder
 	ph := 0
 	for i := 0; i < len(s); i++ {
@@ -700,7 +704,7 @@ func readInterpStr(s string) (string, string) {
 }
 
 // readVerbInterpStr reads a verbatim interpolated string ($@"..." or @$"...").
-func readVerbInterpStr(s string) (string, string) {
+func readVerbInterpStr(s string) (content, rest string) {
 	var b strings.Builder
 	ph := 0
 	for i := 0; i < len(s); i++ {
@@ -737,7 +741,7 @@ func readVerbInterpStr(s string) (string, string) {
 }
 
 // readRawInterpStr reads a raw interpolated string ($"""...""").
-func readRawInterpStr(s string) (string, string) {
+func readRawInterpStr(s string) (content, rest string) {
 	var b strings.Builder
 	ph := 0
 	for i := 0; i < len(s); i++ {
@@ -1254,7 +1258,7 @@ func buildLineOffsets(src string) []int {
 }
 
 // offsetToLC converts a byte offset into 1-based line and column coordinates.
-func offsetToLC(offsets []int, pos int) (int, int) {
+func offsetToLC(offsets []int, pos int) (line, col int) {
 	lo, hi := 0, len(offsets)-1
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
@@ -1287,7 +1291,7 @@ func readIdent(s string) string {
 		return ""
 	}
 	c := s[0]
-	if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+	if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '_' {
 		return ""
 	}
 	i := 1
