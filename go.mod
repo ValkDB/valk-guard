@@ -4,7 +4,7 @@ go 1.25.8
 
 require (
 	github.com/spf13/cobra v1.10.2
-	github.com/valkdb/postgresparser v1.1.7
+	github.com/valkdb/postgresparser v1.1.9
 	gopkg.in/yaml.v3 v3.0.1
 )
 
