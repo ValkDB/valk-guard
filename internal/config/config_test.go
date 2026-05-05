@@ -379,6 +379,62 @@ func TestLoadInvalidRuleEngine(t *testing.T) {
 	}
 }
 
+func TestLoadInvalidSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bad-source.yaml")
+	data := []byte("sources:\n  oracle: false\n")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for invalid source, got nil")
+	}
+}
+
+func TestSourceEnablementDefaultsAndOverrides(t *testing.T) {
+	cfg := Default()
+	if !cfg.IsSourceEnabled(scanner.EngineCSharp) {
+		t.Fatal("expected csharp source enabled by default")
+	}
+
+	cfg.Sources = map[string]bool{
+		"cs":     false,
+		"Python": false,
+	}
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("validateConfig() error = %v", err)
+	}
+	if cfg.IsSourceEnabled(scanner.EngineCSharp) {
+		t.Fatal("expected csharp source disabled")
+	}
+	if cfg.IsSourceEnabled(scanner.EngineSQLAlchemy) {
+		t.Fatal("expected sqlalchemy source disabled")
+	}
+	if !cfg.IsSourceEnabled(scanner.EngineGoqu) {
+		t.Fatal("expected unspecified goqu source to remain enabled")
+	}
+	if _, ok := cfg.Sources["Python"]; ok {
+		t.Fatal("expected source keys to be normalized")
+	}
+	if _, ok := cfg.Sources["python"]; ok {
+		t.Fatal("expected source alias to be normalized to sqlalchemy")
+	}
+}
+
+func TestConflictingSourceAliasesFailValidation(t *testing.T) {
+	cfg := Default()
+	cfg.Sources = map[string]bool{
+		"python":     false,
+		"sqlalchemy": true,
+	}
+
+	if err := validateConfig(cfg); err == nil {
+		t.Fatal("expected conflicting source alias validation error")
+	}
+}
+
 func TestLoadInvalidGoModelMappingMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bad-go-model-mode.yaml")

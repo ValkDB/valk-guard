@@ -89,6 +89,12 @@ Add an entry in `defaultScannerBindings()`:
 
 File discovery is automatic from registered extensions via `requiredExtensions(...)` and `collectScannerInputs(...)`. Top-level `sources.<engine>: false` config filters the binding before discovery, so disabled sources do not collect files or invoke external runtimes.
 
+Synthetic SQL conventions:
+
+- Prefix generated statements with `/* valk-guard:synthetic <source> */` so output makes the origin explicit.
+- Render non-literal bind values as PostgreSQL-style numbered placeholders (`$1`, `$2`, ...), resetting numbering per emitted statement.
+- Prefer structurally valid SQL over perfect fidelity; the parser must accept the statement and the rule engine must see the relevant clauses.
+
 ### 4) Optional: Add Model Extractor
 
 If the source has model metadata, add `internal/schema/<source>/...` implementing `schema.ModelExtractor`.

@@ -291,7 +291,7 @@ make install
 
 - **Go >= 1.25.8** for building from source
 - **Python >= 3.6** only when scanning `.py` files for SQLAlchemy usage. No pip packages needed — Valk Guard ships an embedded script using only stdlib (`ast`, `json`). If SQLAlchemy candidate files are present and `python3` is missing or too old, the scan fails fast with an error.
-- **.NET SDK >= 8.0** only when scanning C# files containing EF Core markers. The scanner uses an embedded Roslyn extractor and is not invoked for projects without C# EF Core candidates. Disable it with `sources.csharp: false` if needed.
+- **.NET SDK >= 8.0** only when scanning `.cs` files. The scanner sends C# files to an embedded Roslyn extractor so candidate detection is syntax-based instead of substring-based. Disable it with `sources.csharp: false` if needed.
 
 ---
 

@@ -11,12 +11,10 @@ end_column, sql
 
 import ast
 import json
-import re
 import sys
 
 
 SYNTHETIC_PREFIX = "/* valk-guard:synthetic sqlalchemy-ast */ "
-IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 JOIN_METHODS = {"join", "outerjoin", "leftouterjoin"}
 FILTER_METHODS = {"filter", "filter_by", "where"}
 FOR_UPDATE_METHODS = {"with_for_update"}
@@ -151,6 +149,7 @@ def _synthesize_query_chain(chain, tablename_map):
     joins = []
     join_tables = []
     predicates = []
+    placeholders = _PlaceholderAllocator()
     has_filter = False
     has_limit = False
     has_for_update = False
@@ -166,7 +165,7 @@ def _synthesize_query_chain(chain, tablename_map):
 
         if method in FILTER_METHODS:
             has_filter = True
-            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map)
+            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map, placeholders)
             if not conds:
                 conds = ["1=1"]
             predicates.extend(conds)
@@ -204,6 +203,7 @@ def _synthesize_select_chain(chain, tablename_map):
 
     joins = []
     predicates = []
+    placeholders = _PlaceholderAllocator()
     has_filter = False
     has_limit = False
     has_for_update = False
@@ -218,7 +218,7 @@ def _synthesize_select_chain(chain, tablename_map):
 
         if method in FILTER_METHODS:
             has_filter = True
-            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map)
+            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map, placeholders)
             if not conds:
                 conds = ["1=1"]
             predicates.extend(conds)
@@ -325,7 +325,7 @@ def _join_clause(method, table):
     return f"{join_type} {table} ON 1=1"
 
 
-def _predicates_from_filter_call(method, args, keywords, tablename_map):
+def _predicates_from_filter_call(method, args, keywords, tablename_map, placeholders):
     predicates = []
 
     if method == "filter_by":
@@ -333,17 +333,17 @@ def _predicates_from_filter_call(method, args, keywords, tablename_map):
             if not kw.arg:
                 continue
             col = _safe_ident(kw.arg, "synthetic_col")
-            predicates.append(f"{col} = {_sql_value(kw.value)}")
+            predicates.append(f"{col} = {_sql_value(kw.value, placeholders)}")
 
     for arg in args:
-        pred = _predicate_from_expr(arg, tablename_map)
+        pred = _predicate_from_expr(arg, tablename_map, placeholders)
         if pred:
             predicates.append(pred)
 
     return predicates
 
 
-def _predicate_from_expr(node, tablename_map):
+def _predicate_from_expr(node, tablename_map, placeholders):
     if isinstance(node, ast.Call):
         if isinstance(node.func, ast.Name) and node.func.id == "text":
             sql = _get_first_string_arg(node)
@@ -355,19 +355,19 @@ def _predicate_from_expr(node, tablename_map):
             col = _column_name_from_expr(node.func.value, "synthetic_col", tablename_map)
 
             if method == "like":
-                return f"{col} LIKE {_sql_value(_first_arg(node.args))}"
+                return f"{col} LIKE {_sql_value(_first_arg(node.args), placeholders)}"
             if method == "ilike":
-                return f"{col} ILIKE {_sql_value(_first_arg(node.args))}"
+                return f"{col} ILIKE {_sql_value(_first_arg(node.args), placeholders)}"
             if method == "contains":
-                return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '%', '%')}"
+                return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '%', '%', placeholders)}"
             if method == "startswith":
-                return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '', '%')}"
+                return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '', '%', placeholders)}"
             if method == "endswith":
-                return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '%', '')}"
+                return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '%', '', placeholders)}"
 
     if isinstance(node, ast.Compare):
         left = _column_name_from_expr(node.left, "synthetic_col", tablename_map)
-        right = _sql_value(_first_arg(node.comparators))
+        right = _sql_value(_first_arg(node.comparators), placeholders)
         if not node.ops:
             return None
         op = _compare_op(node.ops[0])
@@ -375,7 +375,7 @@ def _predicate_from_expr(node, tablename_map):
             return f"{left} {op} {right}"
 
     if isinstance(node, ast.BoolOp):
-        pieces = [_predicate_from_expr(v, tablename_map) for v in node.values]
+        pieces = [_predicate_from_expr(v, tablename_map, placeholders) for v in node.values]
         pieces = [p for p in pieces if p]
         if not pieces:
             return None
@@ -405,10 +405,10 @@ def _compare_op(op):
     return None
 
 
-def _wrapped_like_value(node, prefix, suffix):
+def _wrapped_like_value(node, prefix, suffix, placeholders):
     s = _string_literal(node)
     if s is None:
-        return "'%synthetic%'"
+        return placeholders.next()
     s = s.replace("'", "''")
     return "'" + prefix + s + suffix + "'"
 
@@ -493,7 +493,7 @@ def _limit_from_args(args):
     return "1"
 
 
-def _sql_value(node):
+def _sql_value(node, placeholders):
     if node is None:
         return "NULL"
 
@@ -511,7 +511,20 @@ def _sql_value(node):
         if isinstance(node.operand, ast.Constant) and isinstance(node.operand.value, (int, float)):
             return "-" + str(node.operand.value)
 
-    return "'synthetic_value'"
+    return placeholders.next()
+
+
+class _PlaceholderAllocator:
+    """Allocate PostgreSQL-style bind placeholders for one synthetic SQL statement."""
+
+    def __init__(self):
+        self._next = 1
+
+    def next(self):
+        """Return the next numbered bind placeholder."""
+        value = f"${self._next}"
+        self._next += 1
+        return value
 
 
 def _string_literal(node):
@@ -645,9 +658,24 @@ def _safe_ident(raw, fallback):
     raw = raw.split()[0].rstrip(",")
     if raw == "*":
         return raw
-    if IDENT_RE.match(raw):
+    if _is_dotted_identifier(raw):
         return _quote_ident(raw)
     return _quote_ident(fallback)
+
+
+def _is_identifier_part(text):
+    """Return whether text is a SQL identifier segment without regex."""
+    if not text:
+        return False
+    first = text[0]
+    if not (first == "_" or first.isalpha()):
+        return False
+    return all(ch == "_" or ch.isalnum() for ch in text[1:])
+
+
+def _is_dotted_identifier(text):
+    """Return whether text is a dotted SQL identifier without regex."""
+    return all(_is_identifier_part(part) for part in text.split("."))
 
 
 def _quote_ident(name):

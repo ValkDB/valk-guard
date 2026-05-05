@@ -50,6 +50,9 @@ type Config struct {
 	Exclude []string `yaml:"exclude,omitempty"`
 	// MigrationPaths restricts which .sql files build the schema snapshot.
 	MigrationPaths []string `yaml:"migration_paths,omitempty"`
+	// Sources enables or disables scanner/model sources by engine name. Missing
+	// entries default to enabled.
+	Sources map[string]bool `yaml:"sources,omitempty"`
 	// Rules holds per-rule enablement, severity, and engine overrides.
 	Rules map[string]RuleConfig `yaml:"rules,omitempty"`
 	// GoModel configures Go model extraction behavior.
@@ -125,6 +128,27 @@ func validateConfig(cfg *Config) error {
 		)
 	}
 
+	if len(cfg.Sources) > 0 {
+		normalizedSources := make(map[string]bool, len(cfg.Sources))
+		for source, enabled := range cfg.Sources {
+			candidate := normalizeSource(source)
+			if candidate == "" {
+				allowed := make([]string, 0, len(scanner.KnownEngines()))
+				for _, builtIn := range scanner.KnownEngines() {
+					allowed = append(allowed, string(builtIn))
+				}
+				allowed = append(allowed, "cs", "dotnet", "py", "python")
+				slices.Sort(allowed)
+				return fmt.Errorf("invalid source %q: must be one of %s", source, strings.Join(allowed, ", "))
+			}
+			if previous, exists := normalizedSources[candidate]; exists && previous != enabled {
+				return fmt.Errorf("conflicting source settings for %q", candidate)
+			}
+			normalizedSources[candidate] = enabled
+		}
+		cfg.Sources = normalizedSources
+	}
+
 	for ruleID, rc := range cfg.Rules {
 		if rc.Severity != "" &&
 			rc.Severity != rules.SeverityError &&
@@ -170,6 +194,23 @@ func normalizeGoModelMappingMode(mode GoModelMappingMode) GoModelMappingMode {
 // a canonical form suitable for comparison against known engine identifiers.
 func normalizeEngine(engine string) string {
 	return strings.ToLower(strings.TrimSpace(engine))
+}
+
+// normalizeSource trims, lowercases, and maps user-friendly source aliases to
+// built-in engine identifiers used internally by scanner bindings.
+func normalizeSource(source string) string {
+	source = normalizeEngine(source)
+	switch source {
+	case "py", "python":
+		return string(scanner.EngineSQLAlchemy)
+	case "cs", "c#", "dotnet":
+		return string(scanner.EngineCSharp)
+	default:
+		if scanner.IsKnownEngineName(source) {
+			return source
+		}
+		return ""
+	}
 }
 
 // normalizePathPatterns trims, canonicalizes, and de-duplicates path patterns.
@@ -235,6 +276,19 @@ func (c *Config) IsRuleEnabledForEngine(ruleID string, engine scanner.Engine) bo
 		}
 	}
 	return false
+}
+
+// IsSourceEnabled reports whether a scanner/model source is enabled. Sources
+// are enabled by default; configured false values opt a source out entirely.
+func (c *Config) IsSourceEnabled(engine scanner.Engine) bool {
+	if c == nil || len(c.Sources) == 0 {
+		return true
+	}
+	enabled, ok := c.Sources[string(engine)]
+	if !ok {
+		return true
+	}
+	return enabled
 }
 
 // ShouldExclude returns true if the given file path matches any exclude pattern.

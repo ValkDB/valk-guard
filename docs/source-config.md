@@ -73,5 +73,7 @@ rule noise tuning.
 - SQL, Go, and Goqu scanning run in the Valk Guard binary.
 - SQLAlchemy scanning invokes Python only when `.py` candidates contain
   SQLAlchemy markers.
-- C# scanning invokes `dotnet` and the embedded Roslyn extractor only when `.cs`
-  candidates contain EF Core markers.
+- C# scanning invokes `dotnet` and the embedded Roslyn extractor when `.cs`
+  files are scanned. Roslyn decides from parsed syntax whether EF Core SQL or
+  deterministic LINQ chains are present; the Go wrapper does not substring-match
+  C# code constructs.

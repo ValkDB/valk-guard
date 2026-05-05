@@ -29,7 +29,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: '8.0.404'
+
       - name: Run tests
+        env:
+          VALK_REQUIRE_DOTNET: '1'
         run: go test -race ./...
 
       - name: Run GoReleaser

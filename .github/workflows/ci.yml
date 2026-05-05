@@ -51,11 +51,20 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: '8.0.404'
+
       - name: Verify Python
         run: python3 --version
 
+      - name: Verify .NET
+        run: dotnet --info
+
       - name: Run tests
         working-directory: valk-guard
+        env:
+          VALK_REQUIRE_DOTNET: '1'
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Print coverage
@@ -85,6 +94,10 @@ jobs:
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.12'
+
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: '8.0.404'
 
       - name: Build valk-guard
         working-directory: valk-guard
@@ -124,6 +137,10 @@ jobs:
         with:
           python-version: '3.12'
 
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: '8.0.404'
+
       - name: Build valk-guard
         working-directory: valk-guard
         run: go build -ldflags "-s -w -X main.version=${GITHUB_SHA}" -o valk-guard ./cmd/valk-guard/
@@ -135,7 +152,7 @@ jobs:
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
 
-          files="$(git diff --name-only --diff-filter=ACMRT "$base_sha" "$head_sha" | grep -E '\.(sql|go|py)$' || true)"
+          files="$(git diff --name-only --diff-filter=ACMRT "$base_sha" "$head_sha" | grep -E '\.(sql|go|py|cs)$' || true)"
 
           if [ -z "$files" ]; then
             echo "has_files=false" >> "$GITHUB_OUTPUT"
