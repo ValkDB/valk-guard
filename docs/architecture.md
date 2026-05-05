@@ -27,12 +27,12 @@ graph TD
         B -->|.sql| C[Raw SQL Scanner]
         B -->|.go| D[Go AST Scanner]
         B -->|.go| E[Goqu Synth Scanner]
-        B -->|.py| F[SQLAlchemy Scanner]
-        B -->|.cs| G[C# EF Core Scanner]
+        B -->|.py| F[SQLAlchemy Python AST Scanner]
+        B -->|.cs| G[C# EF Core Roslyn Scanner]
     end
 
     subgraph "2. Analysis Engine"
-        C & D & E & F & G -->|SQL Stream| H[Valk PG Parser]
+        C & D & E & F & G -->|Raw + Synthetic SQL Stream| H[Valk PG Parser]
         H -->|AST| I[Rule Engine]
         I -->|Findings| J[Deduplicator]
     end
@@ -56,7 +56,7 @@ graph TD
 | **Go Standard** | `go/ast` | Extracts SQL literals from `db.Query`, `db.Exec`, `sqlx`, etc. |
 | **Goqu** | Synthesis | Analyzes Goqu method chains to generate synthetic SQL for analysis. |
 | **SQLAlchemy** | Python AST | Invokes a Python sub-process to extract SQL from `text()` and ORM chains. |
-| **C# (EF Core)** | Text Analysis | Extracts SQL from `ExecuteSqlRaw`, `ExecuteSqlInterpolated`, and async variants. v1: raw SQL execution only. |
+| **C# (EF Core)** | Roslyn AST | Invokes an embedded Roslyn extractor only for C# EF Core candidates; extracts `ExecuteSql*`, `FromSql*`, and `SqlQuery*`; synthesizes SQL from deterministic DbSet/LINQ chains (`Where`, `Select`, `Take`, `Include`, `Join`, `ExecuteDelete`, `ExecuteUpdate`). |
 
 ---
 
@@ -134,6 +134,10 @@ Control Valk Guard via a `.valk-guard.yaml` file:
 exclude:
   - "vendor/**"
   - "db/migrations/*.gen.sql"
+
+sources:
+  sqlalchemy: true  # aliases: python, py
+  csharp: false     # aliases: cs, c#, dotnet
 
 rules:
   VG001:

@@ -1,6 +1,6 @@
 # Adding Sources (Scanners + Models)
 
-This guide shows how to add a new source framework (for example GORM) so Valk Guard can lint its SQL and, when available, use model metadata for schema-aware rules.
+This guide shows how to add a new source framework (for example Ent or Dapper) so Valk Guard can lint its SQL and, when available, use model metadata for schema-aware rules.
 
 ## Source Architecture
 
@@ -60,7 +60,7 @@ Provenance contract:
 Add a new engine in `internal/scanner/scanner.go`, for example:
 
 ```go
-const EngineGorm Engine = "gorm"
+const EngineEnt Engine = "ent"
 ```
 
 Then add it to built-in engine allowlist in `internal/scanner/engines.go` (`knownEngines`), so config engine validation accepts it.
@@ -73,7 +73,7 @@ Examples:
 
 - `internal/scanner/goqu/goqu_scanner.go` (Go AST-based)
 - `internal/scanner/sqlalchemy/sqlalchemy_scanner.go` (Python subprocess)
-- `internal/scanner/csharp/scanner.go` (text analysis, no external runtime)
+- `internal/scanner/csharp/scanner.go` (Go wrapper around an embedded Roslyn AST extractor; raw EF Core APIs plus synthetic SQL for deterministic DbSet/LINQ chains)
 
 ### 3) Register Scanner Binding
 
@@ -81,13 +81,13 @@ Add an entry in `defaultScannerBindings()`:
 
 ```go
 {
-    name: "gorm",
-    impl: &gormscanner.Scanner{},
+    name: "ent",
+    impl: &entscanner.Scanner{},
     extensions: []string{".go"},
 }
 ```
 
-File discovery is automatic from registered extensions via `requiredExtensions(...)` and `collectScannerInputs(...)`.
+File discovery is automatic from registered extensions via `requiredExtensions(...)` and `collectScannerInputs(...)`. Top-level `sources.<engine>: false` config filters the binding before discovery, so disabled sources do not collect files or invoke external runtimes.
 
 ### 4) Optional: Add Model Extractor
 
@@ -113,11 +113,11 @@ Add an entry in `defaultModelBindings()`:
 
 ```go
 {
-    source:        schema.ModelSourceGorm,
-    extractor:     &gormmodel.Extractor{},
+    source:        schema.ModelSourceEnt,
+    extractor:     &entmodel.Extractor{},
     extensions:    []string{".go"},
-    configEngines: []scanner.Engine{scanner.EngineGorm},
-    queryEngines:  []scanner.Engine{scanner.EngineGorm},
+    configEngines: []scanner.Engine{scanner.EngineEnt},
+    queryEngines:  []scanner.Engine{scanner.EngineEnt},
 }
 ```
 
@@ -156,4 +156,5 @@ Binding fields control behavior:
 4. Optional extractor implemented and model-bound.
 5. Tests added for scanner/query-schema/schema-drift behavior.
 6. Docs updated.
-7. `go test ./...` passes.
+7. Source-level config docs updated if the source can be disabled.
+8. `go test ./...` passes.

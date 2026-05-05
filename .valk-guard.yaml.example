@@ -21,6 +21,15 @@ migration_paths:
   - "db/migrations"
   - "schema/**/*.sql"
 
+# Optional source scanner/model-extractor switches. Missing entries default to true.
+# Disable csharp if .NET is unavailable, or sqlalchemy if Python scanning is not desired.
+sources:
+  sql: true
+  go: true
+  goqu: true
+  sqlalchemy: true # aliases: python, py
+  csharp: true     # aliases: cs, c#, dotnet
+
 # Go model extraction behavior
 go_model:
   # strict | balanced | permissive

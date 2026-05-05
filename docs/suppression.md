@@ -41,7 +41,25 @@ rules:
     enabled: false
 ```
 
-## 3) Inline Suppression
+## 3) Source Scanner Tuning
+
+Use top-level `sources` to disable whole scanner/model-extractor integrations.
+Missing entries default to enabled.
+
+```yaml
+sources:
+  sql: true
+  go: true
+  goqu: true
+  sqlalchemy: false # aliases: python, py
+  csharp: false     # aliases: cs, c#, dotnet
+```
+
+This is different from `rules.<id>.engines`: `sources` prevents file discovery
+and external runtime invocation, while rule engine filters only control which
+findings can be emitted after a statement is scanned.
+
+## 4) Inline Suppression
 
 Use inline directives for one-off cases near the SQL source.
 
@@ -68,7 +86,7 @@ Python:
 session.execute(text("SELECT * FROM users"))
 ```
 
-## 4) Schema-Aware Rule Config
+## 5) Schema-Aware Rule Config
 
 Schema-aware rules (`VG101`-`VG111`) use the same per-rule config:
 
