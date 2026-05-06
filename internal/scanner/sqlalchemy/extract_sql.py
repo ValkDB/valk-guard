@@ -17,7 +17,11 @@ import sys
 SYNTHETIC_PREFIX = "/* valk-guard:synthetic sqlalchemy-ast */ "
 JOIN_METHODS = {"join", "outerjoin", "leftouterjoin"}
 FILTER_METHODS = {"filter", "filter_by", "where"}
+ORDER_METHODS = {"order_by"}
+GROUP_METHODS = {"group_by"}
+HAVING_METHODS = {"having"}
 FOR_UPDATE_METHODS = {"with_for_update"}
+AGGREGATE_FUNCS = {"sum": "SUM", "min": "MIN", "max": "MAX", "avg": "AVG", "average": "AVG", "count": "COUNT"}
 
 
 def _build_tablename_map(tree):
@@ -149,18 +153,41 @@ def _synthesize_query_chain(chain, tablename_map):
     joins = []
     join_tables = []
     predicates = []
+    group_by = []
+    having = []
+    order_by = []
     placeholders = _PlaceholderAllocator()
+    distinct = False
     has_filter = False
     has_limit = False
+    has_offset = False
     has_for_update = False
     limit_val = "1"
+    offset_val = "1"
 
     for link in chain[1:end]:
         method = link["name"].lower()
         if method in JOIN_METHODS:
             table = _table_name_from_expr(_first_arg(link["args"]), "synthetic_join", tablename_map)
-            joins.append(_join_clause(method, table))
+            joins.append(_join_clause(method, table, link, tablename_map, placeholders))
             join_tables.append(table)
+            continue
+
+        if method == "distinct":
+            distinct = True
+            continue
+
+        if method in ORDER_METHODS:
+            order_by.extend(_order_by_from_args(link["args"], tablename_map))
+            continue
+
+        if method in GROUP_METHODS:
+            group_by.extend(_columns_from_args(link["args"], tablename_map))
+            continue
+
+        if method in HAVING_METHODS:
+            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map, placeholders)
+            having.extend(conds or ["1=1"])
             continue
 
         if method in FILTER_METHODS:
@@ -174,6 +201,11 @@ def _synthesize_query_chain(chain, tablename_map):
         if method == "limit":
             has_limit = True
             limit_val = _limit_from_args(link["args"])
+            continue
+
+        if method == "offset":
+            has_offset = True
+            offset_val = _limit_from_args(link["args"])
             continue
 
         if method in FOR_UPDATE_METHODS:
@@ -193,6 +225,12 @@ def _synthesize_query_chain(chain, tablename_map):
         has_limit,
         limit_val,
         has_for_update,
+        distinct,
+        group_by,
+        having,
+        order_by,
+        has_offset,
+        offset_val,
     )
 
 
@@ -203,17 +241,40 @@ def _synthesize_select_chain(chain, tablename_map):
 
     joins = []
     predicates = []
+    group_by = []
+    having = []
+    order_by = []
     placeholders = _PlaceholderAllocator()
+    distinct = False
     has_filter = False
     has_limit = False
+    has_offset = False
     has_for_update = False
     limit_val = "1"
+    offset_val = "1"
 
     for link in chain[1:]:
         method = link["name"].lower()
         if method in JOIN_METHODS:
             table = _table_name_from_expr(_first_arg(link["args"]), "synthetic_join", tablename_map)
-            joins.append(_join_clause(method, table))
+            joins.append(_join_clause(method, table, link, tablename_map, placeholders))
+            continue
+
+        if method == "distinct":
+            distinct = True
+            continue
+
+        if method in ORDER_METHODS:
+            order_by.extend(_order_by_from_args(link["args"], tablename_map))
+            continue
+
+        if method in GROUP_METHODS:
+            group_by.extend(_columns_from_args(link["args"], tablename_map))
+            continue
+
+        if method in HAVING_METHODS:
+            conds = _predicates_from_filter_call(method, link["args"], link["keywords"], tablename_map, placeholders)
+            having.extend(conds or ["1=1"])
             continue
 
         if method in FILTER_METHODS:
@@ -229,6 +290,11 @@ def _synthesize_select_chain(chain, tablename_map):
             limit_val = _limit_from_args(link["args"])
             continue
 
+        if method == "offset":
+            has_offset = True
+            offset_val = _limit_from_args(link["args"])
+            continue
+
         if method in FOR_UPDATE_METHODS:
             has_for_update = True
 
@@ -241,6 +307,12 @@ def _synthesize_select_chain(chain, tablename_map):
         has_limit,
         limit_val,
         has_for_update,
+        distinct,
+        group_by,
+        having,
+        order_by,
+        has_offset,
+        offset_val,
     )
 
 
@@ -287,14 +359,38 @@ def _operation_from_chain(chain):
     return None, None
 
 
-def _build_select_sql(columns, table, joins, has_filter, predicates, has_limit, limit_val, has_for_update):
-    sql = f"SELECT {', '.join(columns)} FROM {table}"
+def _build_select_sql(
+    columns,
+    table,
+    joins,
+    has_filter,
+    predicates,
+    has_limit,
+    limit_val,
+    has_for_update,
+    distinct,
+    group_by,
+    having,
+    order_by,
+    has_offset,
+    offset_val,
+):
+    modifier = "DISTINCT " if distinct else ""
+    sql = f"SELECT {modifier}{', '.join(columns)} FROM {table}"
     if joins:
         sql += " " + " ".join(joins)
     if has_filter and predicates:
         sql += " WHERE " + " AND ".join(predicates)
+    if group_by:
+        sql += " GROUP BY " + ", ".join(group_by)
+    if having:
+        sql += " HAVING " + " AND ".join(having)
+    if order_by:
+        sql += " ORDER BY " + ", ".join(order_by)
     if has_limit:
         sql += " LIMIT " + limit_val
+    if has_offset:
+        sql += " OFFSET " + offset_val
     if has_for_update:
         sql += " FOR UPDATE"
     return sql
@@ -318,11 +414,47 @@ def _build_delete_sql(table, join_tables, has_filter, predicates):
     return sql
 
 
-def _join_clause(method, table):
+def _join_clause(method, table, link, tablename_map, placeholders):
     join_type = "JOIN"
-    if method in {"outerjoin", "leftouterjoin"}:
+    keywords = {kw.arg: kw.value for kw in link.get("keywords", []) if kw.arg}
+    if method in {"outerjoin", "leftouterjoin"} or _truthy_keyword(keywords.get("isouter")):
         join_type = "LEFT JOIN"
-    return f"{join_type} {table} ON 1=1"
+    if _truthy_keyword(keywords.get("full")):
+        join_type = "FULL JOIN"
+    on = "1=1"
+    if len(link["args"]) > 1:
+        on = _predicate_from_expr(link["args"][1], tablename_map, placeholders) or "1=1"
+    return f"{join_type} {table} ON {on}"
+
+
+def _columns_from_args(args, tablename_map):
+    """Resolve a list of SQLAlchemy expressions into column identifiers."""
+    columns = []
+    for arg in args:
+        col = _column_name_from_expr(arg, "", tablename_map)
+        if col:
+            columns.append(col)
+    return columns
+
+
+def _order_by_from_args(args, tablename_map):
+    """Resolve SQLAlchemy order_by arguments into ORDER BY fragments."""
+    orders = []
+    for arg in args:
+        direction = "ASC"
+        expr = arg
+        if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Attribute) and arg.func.attr.lower() in {"desc", "asc"}:
+            direction = "DESC" if arg.func.attr.lower() == "desc" else "ASC"
+            expr = arg.func.value if not arg.args else arg.args[0]
+        col = _column_name_from_expr(expr, "", tablename_map)
+        if col:
+            orders.append(f"{col} {direction}")
+    return orders
+
+
+def _truthy_keyword(node):
+    """Return whether a keyword expression is statically true."""
+    return isinstance(node, ast.Constant) and node.value is True
 
 
 def _predicates_from_filter_call(method, args, keywords, tablename_map, placeholders):
@@ -358,19 +490,31 @@ def _predicate_from_expr(node, tablename_map, placeholders):
                 return f"{col} LIKE {_sql_value(_first_arg(node.args), placeholders)}"
             if method == "ilike":
                 return f"{col} ILIKE {_sql_value(_first_arg(node.args), placeholders)}"
+            if method in {"in_", "notin_", "not_in"}:
+                op = "NOT IN" if method in {"notin_", "not_in"} else "IN"
+                return f"{col} {op} ({_bind_list_from_expr(_first_arg(node.args), placeholders)})"
             if method == "contains":
                 return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '%', '%', placeholders)}"
             if method == "startswith":
                 return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '', '%', placeholders)}"
             if method == "endswith":
                 return f"{col} LIKE {_wrapped_like_value(_first_arg(node.args), '%', '', placeholders)}"
+            if method in {"is_", "isnot"}:
+                op = "IS NOT" if method == "isnot" else "IS"
+                return f"{col} {op} {_sql_value(_first_arg(node.args), placeholders)}"
 
     if isinstance(node, ast.Compare):
         left = _column_name_from_expr(node.left, "synthetic_col", tablename_map)
-        right = _sql_value(_first_arg(node.comparators), placeholders)
         if not node.ops:
             return None
         op = _compare_op(node.ops[0])
+        comparator = _first_arg(node.comparators)
+        if op in {"IN", "NOT IN"}:
+            right = "(" + _bind_list_from_expr(comparator, placeholders) + ")"
+        elif isinstance(comparator, ast.Attribute):
+            right = _column_name_from_expr(comparator, "synthetic_col", tablename_map)
+        else:
+            right = _sql_value(comparator, placeholders)
         if op:
             return f"{left} {op} {right}"
 
@@ -455,8 +599,15 @@ def _column_name_from_expr(node, fallback, tablename_map=None):
         return _safe_ident(node.value, fallback)
 
     if isinstance(node, ast.Call):
-        # Handle wrappers such as func.lower(User.email)
         if isinstance(node.func, ast.Attribute):
+            func_name = node.func.attr.lower()
+            if func_name in AGGREGATE_FUNCS:
+                arg = _first_arg(node.args)
+                col = "*" if arg is None else _column_name_from_expr(arg, "synthetic_col", tablename_map)
+                return f"{AGGREGATE_FUNCS[func_name]}({col})"
+            if func_name in {"desc", "asc"}:
+                expr = node.func.value if not node.args else node.args[0]
+                return _column_name_from_expr(expr, fallback, tablename_map)
             return _column_name_from_expr(node.func.value, fallback, tablename_map)
         if node.args:
             return _column_name_from_expr(node.args[0], fallback, tablename_map)
@@ -525,6 +676,14 @@ class _PlaceholderAllocator:
         value = f"${self._next}"
         self._next += 1
         return value
+
+
+def _bind_list_from_expr(node, placeholders):
+    """Render bind placeholders for IN/NOT IN with static arity when available."""
+    arity = 3
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)) and node.elts:
+        arity = len(node.elts)
+    return ", ".join(placeholders.next() for _ in range(arity))
 
 
 def _string_literal(node):

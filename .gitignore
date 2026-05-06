@@ -40,3 +40,7 @@ temp/
 
 # Claude Code local settings (personal tool permissions and local dev paths)
 .claude/settings.local.json
+/internal/scanner/csharp/roslynextractor/bin/*
+/internal/scanner/csharp/roslynextractor/obj/*
+/internal/scanner/csharp/roslynextractor/**/bin/*
+/internal/scanner/csharp/roslynextractor/**/obj/*

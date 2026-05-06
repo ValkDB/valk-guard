@@ -6,6 +6,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/valkdb/valk-guard/internal/rules"
@@ -485,5 +486,64 @@ func TestIsRuleEnabledForEngine(t *testing.T) {
 	}
 	if !cfg.IsRuleEnabledForEngine("VG999", scanner.EngineSQL) {
 		t.Fatal("expected unknown rule to be enabled by default")
+	}
+}
+
+func TestSourceAliasMatrix(t *testing.T) {
+	aliases := map[string]string{
+		"csharp":     string(scanner.EngineCSharp),
+		"cs":         string(scanner.EngineCSharp),
+		"c#":         string(scanner.EngineCSharp),
+		"dotnet":     string(scanner.EngineCSharp),
+		"python":     string(scanner.EngineSQLAlchemy),
+		"py":         string(scanner.EngineSQLAlchemy),
+		"sqlalchemy": string(scanner.EngineSQLAlchemy),
+		"sql":        string(scanner.EngineSQL),
+		"go":         string(scanner.EngineGo),
+		"goqu":       string(scanner.EngineGoqu),
+	}
+
+	for alias, want := range aliases {
+		t.Run(alias, func(t *testing.T) {
+			cfg := Default()
+			cfg.Sources = map[string]bool{strings.ToUpper(alias): false}
+			if err := validateConfig(cfg); err != nil {
+				t.Fatalf("validateConfig() error = %v", err)
+			}
+			if _, ok := cfg.Sources[want]; !ok {
+				t.Fatalf("expected alias %q to normalize to %q, got %+v", alias, want, cfg.Sources)
+			}
+		})
+	}
+}
+
+func TestRuleEngineAliasesNormalize(t *testing.T) {
+	cfg := Default()
+	cfg.Rules["VG001"] = RuleConfig{Engines: []string{"python", "c#"}}
+	if err := validateConfig(cfg); err != nil {
+		t.Fatalf("validateConfig() error = %v", err)
+	}
+	if !cfg.IsRuleEnabledForEngine("VG001", scanner.EngineSQLAlchemy) {
+		t.Fatal("expected python alias to enable sqlalchemy")
+	}
+	if !cfg.IsRuleEnabledForEngine("VG001", scanner.EngineCSharp) {
+		t.Fatal("expected c# alias to enable csharp")
+	}
+	if cfg.IsRuleEnabledForEngine("VG001", scanner.EngineGoqu) {
+		t.Fatal("expected goqu to remain disabled")
+	}
+}
+
+func TestInvalidSourceErrorListsAliases(t *testing.T) {
+	cfg := Default()
+	cfg.Sources = map[string]bool{"oracle": true}
+	err := validateConfig(cfg)
+	if err == nil {
+		t.Fatal("expected invalid source error")
+	}
+	for _, want := range []string{"c#", "cs", "dotnet", "py", "python", "sqlalchemy", "goqu"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected error to list alias %q, got %v", want, err)
+		}
 	}
 }

@@ -136,7 +136,7 @@ func filterScannerBindings(cfg *config.Config, bindings []scannerBinding) []scan
 func filterModelBindings(cfg *config.Config, bindings []modelBinding) []modelBinding {
 	filtered := make([]modelBinding, 0, len(bindings))
 	for _, binding := range bindings {
-		if modelBindingEnabled(cfg, binding) {
+		if modelBindingEnabled(cfg, &binding) {
 			filtered = append(filtered, binding)
 		}
 	}
@@ -145,7 +145,7 @@ func filterModelBindings(cfg *config.Config, bindings []modelBinding) []modelBin
 
 // modelBindingEnabled reports whether any engine that can use a model binding
 // is enabled in source config.
-func modelBindingEnabled(cfg *config.Config, binding modelBinding) bool {
+func modelBindingEnabled(cfg *config.Config, binding *modelBinding) bool {
 	for _, engine := range binding.configEngines {
 		if cfg.IsSourceEnabled(engine) {
 			return true

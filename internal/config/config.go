@@ -133,13 +133,7 @@ func validateConfig(cfg *Config) error {
 		for source, enabled := range cfg.Sources {
 			candidate := normalizeSource(source)
 			if candidate == "" {
-				allowed := make([]string, 0, len(scanner.KnownEngines()))
-				for _, builtIn := range scanner.KnownEngines() {
-					allowed = append(allowed, string(builtIn))
-				}
-				allowed = append(allowed, "cs", "dotnet", "py", "python")
-				slices.Sort(allowed)
-				return fmt.Errorf("invalid source %q: must be one of %s", source, strings.Join(allowed, ", "))
+				return fmt.Errorf("invalid source %q: must be one of %s", source, strings.Join(acceptedEngineNames(), ", "))
 			}
 			if previous, exists := normalizedSources[candidate]; exists && previous != enabled {
 				return fmt.Errorf("conflicting source settings for %q", candidate)
@@ -163,13 +157,7 @@ func validateConfig(cfg *Config) error {
 			for _, engine := range rc.Engines {
 				candidate := normalizeEngine(engine)
 				if candidate != ruleEngineAll && !scanner.IsKnownEngineName(candidate) {
-					allowed := make([]string, 0, len(scanner.KnownEngines())+1)
-					allowed = append(allowed, ruleEngineAll)
-					for _, builtIn := range scanner.KnownEngines() {
-						allowed = append(allowed, string(builtIn))
-					}
-					slices.Sort(allowed)
-					return fmt.Errorf("invalid engine %q for rule %s: must be one of %s", engine, ruleID, strings.Join(allowed, ", "))
+					return fmt.Errorf("invalid engine %q for rule %s: must be one of %s", engine, ruleID, strings.Join(acceptedEngineNames(ruleEngineAll), ", "))
 				}
 				if _, exists := seen[candidate]; exists {
 					continue
@@ -190,27 +178,52 @@ func normalizeGoModelMappingMode(mode GoModelMappingMode) GoModelMappingMode {
 	return GoModelMappingMode(strings.ToLower(strings.TrimSpace(string(mode))))
 }
 
-// normalizeEngine trims whitespace and lowercases an engine string to produce
-// a canonical form suitable for comparison against known engine identifiers.
-func normalizeEngine(engine string) string {
-	return strings.ToLower(strings.TrimSpace(engine))
+var engineAliases = map[string]string{
+	"py":     string(scanner.EngineSQLAlchemy),
+	"python": string(scanner.EngineSQLAlchemy),
+	"cs":     string(scanner.EngineCSharp),
+	"c#":     string(scanner.EngineCSharp),
+	"dotnet": string(scanner.EngineCSharp),
 }
 
-// normalizeSource trims, lowercases, and maps user-friendly source aliases to
-// built-in engine identifiers used internally by scanner bindings.
-func normalizeSource(source string) string {
-	source = normalizeEngine(source)
-	switch source {
-	case "py", "python":
-		return string(scanner.EngineSQLAlchemy)
-	case "cs", "c#", "dotnet":
-		return string(scanner.EngineCSharp)
-	default:
-		if scanner.IsKnownEngineName(source) {
-			return source
-		}
-		return ""
+// normalizeAlias trims, lowercases, and maps user-friendly aliases to built-in
+// scanner engine identifiers. Unknown aliases return the normalized input.
+func normalizeAlias(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if canonical, ok := engineAliases[value]; ok {
+		return canonical
 	}
+	return value
+}
+
+// acceptedEngineNames returns known engines plus aliases for validation errors.
+func acceptedEngineNames(extra ...string) []string {
+	allowed := make([]string, 0, len(scanner.KnownEngines())+len(engineAliases)+len(extra))
+	allowed = append(allowed, extra...)
+	for _, builtIn := range scanner.KnownEngines() {
+		allowed = append(allowed, string(builtIn))
+	}
+	for alias := range engineAliases {
+		allowed = append(allowed, alias)
+	}
+	slices.Sort(allowed)
+	return slices.Compact(allowed)
+}
+
+// normalizeEngine trims whitespace, lowercases, and maps engine aliases to the
+// canonical engine name used by rule engine filters.
+func normalizeEngine(engine string) string {
+	return normalizeAlias(engine)
+}
+
+// normalizeSource trims whitespace, lowercases, and maps source aliases to the
+// canonical built-in engine identifier used by scanner bindings.
+func normalizeSource(source string) string {
+	source = normalizeAlias(source)
+	if scanner.IsKnownEngineName(source) {
+		return source
+	}
+	return ""
 }
 
 // normalizePathPatterns trims, canonicalizes, and de-duplicates path patterns.

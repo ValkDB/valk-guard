@@ -56,7 +56,7 @@ graph TD
 | **Go Standard** | `go/ast` | Extracts SQL literals from `db.Query`, `db.Exec`, `sqlx`, etc. |
 | **Goqu** | Synthesis | Analyzes Goqu method chains to generate synthetic SQL for analysis. |
 | **SQLAlchemy** | Python AST | Invokes a Python sub-process to extract SQL from `text()` and ORM chains. |
-| **C# (EF Core)** | Roslyn AST | Invokes an embedded Roslyn extractor only for C# EF Core candidates; extracts `ExecuteSql*`, `FromSql*`, and `SqlQuery*`; synthesizes SQL from deterministic DbSet/LINQ chains (`Where`, `Select`, `Take`, `Include`, `Join`, `ExecuteDelete`, `ExecuteUpdate`). |
+| **C# (EF Core)** | Roslyn AST | Invokes a cached embedded Roslyn extractor for scanned `.cs` files; the extractor is published once as a self-contained binary per content hash; Roslyn decides from syntax whether to extract `ExecuteSql*`, `FromSql*`, and `SqlQuery*`; synthesizes SQL from deterministic DbSet/LINQ chains (Where, Select, Take, Skip, Include, Join, GroupJoin, SelectMany, OrderBy, GroupBy, Having, Distinct, ExecuteDelete, ExecuteUpdate, Count, Any, All, Sum, Min, Max, Average, IN/NOT IN via Contains, LIKE/ILIKE, and raw FOR UPDATE via FromSql/ExecuteSql). |
 
 ---
 

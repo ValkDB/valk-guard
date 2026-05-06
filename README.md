@@ -149,7 +149,7 @@ No raw SQL in those files. Valk Guard synthesizes SQL from the ORM calls, parses
 
 For schema-drift rules (VG101+), it also reads **ORM model definitions** — Go struct tags (`db`, `gorm`) and Python `__tablename__` / `Column(...)` — and cross-references them against your migration DDL.
 
-> **C# note:** query-builder synthesis is intentionally conservative. It covers deterministic DbSet/LINQ shapes such as `Where`, `Select`, `Take`, `Include`, `Join`, `ExecuteDelete`, and `ExecuteUpdate`; uncertain dynamic expressions are skipped.
+> **C# note:** query-builder synthesis is intentionally conservative. It covers deterministic DbSet/LINQ shapes such as Where, Select, Take, Skip, Include, Join, GroupJoin, SelectMany, OrderBy, GroupBy, Having, Distinct, ExecuteDelete, ExecuteUpdate, Count, Any, All, Sum, Min, Max, Average, IN/NOT IN via Contains, LIKE/ILIKE, and raw FOR UPDATE via FromSql/ExecuteSql; uncertain dynamic expressions are skipped. `ExecuteSqlRaw` format normalization rewrites `{0}` placeholders to `$1`, so literal `{0}` text inside raw SQL is a known caveat.
 
 ---
 
@@ -291,7 +291,7 @@ make install
 
 - **Go >= 1.25.8** for building from source
 - **Python >= 3.6** only when scanning `.py` files for SQLAlchemy usage. No pip packages needed — Valk Guard ships an embedded script using only stdlib (`ast`, `json`). If SQLAlchemy candidate files are present and `python3` is missing or too old, the scan fails fast with an error.
-- **.NET SDK >= 8.0** only when scanning `.cs` files. The scanner sends C# files to an embedded Roslyn extractor so candidate detection is syntax-based instead of substring-based. Disable it with `sources.csharp: false` if needed.
+- **.NET SDK >= 8.0** only when scanning `.cs` files. The scanner sends C# files to an embedded Roslyn extractor so candidate detection is syntax-based instead of substring-based. The embedded extractor is materialized under the user cache directory, published once as a self-contained binary for the current OS/architecture, and reused until its bundled source changes. Disable it with `sources.csharp: false` if needed.
 
 ---
 

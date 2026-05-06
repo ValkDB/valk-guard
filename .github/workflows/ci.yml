@@ -55,6 +55,14 @@ jobs:
         with:
           dotnet-version: '8.0.404'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@0637707758659e81f5f0c2bb7b1d276a4737b6e0 # v4.3.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('valk-guard/internal/scanner/csharp/roslynextractor/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
       - name: Verify Python
         run: python3 --version
 
@@ -67,6 +75,10 @@ jobs:
           VALK_REQUIRE_DOTNET: '1'
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
+      - name: Run Roslyn extractor tests
+        working-directory: valk-guard
+        run: dotnet test internal/scanner/csharp/roslynextractor/RoslynExtractor.Tests/RoslynExtractor.Tests.csproj --nologo
+
       - name: Print coverage
         working-directory: valk-guard
         run: go tool cover -func=coverage.out
@@ -76,6 +88,41 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./...
+
+  csharp-windows:
+    name: C# Scanner (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: valk-guard
+
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: '1.25.8'
+          cache-dependency-path: valk-guard/go.sum
+
+      - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          dotnet-version: '8.0.404'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@0637707758659e81f5f0c2bb7b1d276a4737b6e0 # v4.3.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('valk-guard/internal/scanner/csharp/roslynextractor/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
+      - name: Run C# scanner tests
+        working-directory: valk-guard
+        env:
+          VALK_REQUIRE_DOTNET: '1'
+        run: go test ./internal/scanner/csharp
+
+      - name: Run Roslyn extractor tests
+        working-directory: valk-guard
+        run: dotnet test internal/scanner/csharp/roslynextractor/RoslynExtractor.Tests/RoslynExtractor.Tests.csproj --nologo
 
   self-scan:
     name: Self-scan
@@ -98,6 +145,14 @@ jobs:
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: '8.0.404'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@0637707758659e81f5f0c2bb7b1d276a4737b6e0 # v4.3.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('valk-guard/internal/scanner/csharp/roslynextractor/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
 
       - name: Build valk-guard
         working-directory: valk-guard
@@ -140,6 +195,14 @@ jobs:
       - uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
         with:
           dotnet-version: '8.0.404'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@0637707758659e81f5f0c2bb7b1d276a4737b6e0 # v4.3.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('valk-guard/internal/scanner/csharp/roslynextractor/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
 
       - name: Build valk-guard
         working-directory: valk-guard

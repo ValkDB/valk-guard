@@ -1,125 +1,166 @@
 // Copyright 2025 ValkDB
 // SPDX-License-Identifier: Apache-2.0
 
-// Package csharp provides a scanner that extracts SQL from EF Core raw SQL
-// execution calls in C# source files.
+// Package csharp provides an EF Core scanner for C# source files.
 //
-// v1 covers raw EF Core SQL execution only:
-//   - ExecuteSqlRaw / ExecuteSqlRawAsync
-//   - ExecuteSqlInterpolated / ExecuteSqlInterpolatedAsync
-//
-// Query-builder, LINQ, FromSqlRaw, and SqlQueryRaw patterns are tracked
-// separately in issue #17.
-//
-// Known v1 limitations:
-//   - Variable resolution is limited to assignments that appear earlier in the
-//     enclosing method body. Cross-method, cross-file, and field/property flow
-//     are not tracked.
-//   - Only the last assignment to a given variable name before the call is
-//     captured. Conditional or branching assignments are not tracked.
-//   - Format-string normalization ({0} → $1) is applied unconditionally to
-//     ExecuteSqlRaw calls. SQL that contains literal {0} text will be rewritten.
+// The scanner intentionally avoids Go-side string heuristics for C# code
+// constructs. It sends readable .cs files to the embedded Roslyn extractor,
+// which parses real C# syntax and decides whether raw EF Core SQL or
+// deterministic DbSet/LINQ query chains are present. Extracted and synthetic
+// SQL then flows through the normal Valk Guard SQL parser and rule engine.
 package csharp
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"embed"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"iter"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/valkdb/valk-guard/internal/scanner"
 )
 
-// Scanner extracts SQL from EF Core raw SQL execution calls in C# source files.
-type Scanner struct{}
+//go:embed roslynextractor/RoslynExtractor.csproj roslynextractor/Program.cs
+var roslynProject embed.FS
 
-var errStop = errors.New("csharp scanner stop")
+const (
+	csprojEmbedPath       = "roslynextractor/RoslynExtractor.csproj"
+	programEmbedPath      = "roslynextractor/Program.cs"
+	extractorTimeout      = 5 * time.Minute
+	missingDotnetErrorMsg = ".NET SDK is required for scanning C# EF Core files"
+)
 
-// efCoreMethodNames lists the EF Core raw SQL execution methods, ordered
-// longest-first so prefix ambiguity is resolved correctly during matching.
-var efCoreMethodNames = []string{
-	"ExecuteSqlInterpolatedAsync",
-	"ExecuteSqlInterpolated",
-	"ExecuteSqlRawAsync",
-	"ExecuteSqlRaw",
+var (
+	roslynBuildMu sync.Mutex
+	userCacheDir  = os.UserCacheDir
+)
+
+// Scanner extracts raw and synthetic SQL from EF Core usage in C# source files.
+type Scanner struct {
+	// DotnetPath optionally overrides the dotnet executable used to run the
+	// embedded Roslyn extractor. Empty means PATH lookup for "dotnet".
+	DotnetPath string
+	// ProjectPath optionally points at a RoslynExtractor.csproj on disk. Empty
+	// means the embedded extractor project is materialized and reused from the
+	// user cache directory.
+	ProjectPath string
+	// Timeout optionally overrides the Roslyn extractor timeout. Empty uses the
+	// package default. Tests use this to exercise timeout handling quickly.
+	Timeout time.Duration
 }
 
-// interpolatedMethods is the set of methods that expect interpolated strings.
-var interpolatedMethods = map[string]struct{}{
-	"ExecuteSqlInterpolated":      {},
-	"ExecuteSqlInterpolatedAsync": {},
-}
-
-// Scan walks .cs files under the given paths and streams extracted SQL statements.
+// Scan walks the given paths, sends readable C# files to the Roslyn AST
+// extractor, and streams extracted SQL statements. The .NET SDK is only
+// required when at least one .cs file is present and the C# source is enabled.
 func (s *Scanner) Scan(ctx context.Context, paths []string) iter.Seq2[scanner.SQLStatement, error] {
 	return func(yield func(scanner.SQLStatement, error) bool) {
-		err := walkCSFiles(ctx, paths, func(path string, src []byte) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			content := string(src)
-			if !strings.Contains(content, "ExecuteSql") {
-				return nil
-			}
-			for _, stmt := range extractStatements(path, content) {
-				if !yield(stmt, nil) {
-					return errStop
-				}
-			}
-			return nil
-		})
-		if err != nil && !errors.Is(err, errStop) {
+		candidates, err := collectCandidates(ctx, paths)
+		if err != nil {
 			_ = yield(scanner.SQLStatement{}, err)
+			return
 		}
+		if len(candidates) == 0 {
+			return
+		}
+
+		extracted, err := s.runRoslynExtractor(ctx, candidates)
+		if err != nil {
+			_ = yield(scanner.SQLStatement{}, err)
+			return
+		}
+
+		yieldWithDirectives(ctx, extracted, yield)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// File walking
-// ---------------------------------------------------------------------------
+// csResult represents one SQL statement emitted by the Roslyn extractor.
+type csResult struct {
+	File      string `json:"file"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndLine   int    `json:"end_line"`
+	EndColumn int    `json:"end_column"`
+	SQL       string `json:"sql"`
+}
 
-// walkCSFiles visits .cs inputs under paths and passes each file to fn.
+// collectCandidates returns readable .cs files under paths. Candidate
+// classification happens inside Roslyn so scanner logic does not depend on
+// substring checks over source text.
+func collectCandidates(ctx context.Context, paths []string) ([]string, error) {
+	var candidates []string
+	seen := make(map[string]struct{})
+
+	err := walkCSFiles(ctx, paths, func(path string, _ []byte) error {
+		clean := filepath.Clean(path)
+		if _, exists := seen[clean]; exists {
+			return nil
+		}
+		seen[clean] = struct{}{}
+		candidates = append(candidates, clean)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return candidates, nil
+}
+
+// walkCSFiles visits every readable .cs file under paths and passes its content
+// to fn. Missing roots are ignored to match the existing scanner behavior.
 func walkCSFiles(ctx context.Context, paths []string, fn func(string, []byte) error) error {
 	for _, root := range paths {
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if err := ctx.Err(); err != nil {
+			return err
 		}
+
 		info, err := os.Stat(root)
 		if err != nil {
 			continue
 		}
 		if !info.IsDir() {
-			if !isCS(root) {
+			if !isCSharpSource(root) {
 				continue
 			}
-			data, err := os.ReadFile(root) //nolint:gosec // scanning user-provided source paths
-			if err != nil {
-				return fmt.Errorf("read %s: %w", root, err)
+			data, readErr := os.ReadFile(root) //nolint:gosec // scanner input is user-selected source code
+			if readErr != nil {
+				return fmt.Errorf("read C# file %s: %w", root, readErr)
 			}
-			if err := fn(filepath.Clean(root), data); err != nil {
+			if err := fn(root, data); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := filepath.WalkDir(root, func(p string, d fs.DirEntry, we error) error {
-			if we != nil {
-				return we
+
+		if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
 			}
-			if d.IsDir() || !isCS(p) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if d.IsDir() {
 				return nil
 			}
-			if ctx.Err() != nil {
-				return ctx.Err()
+			if !isCSharpSource(path) {
+				return nil
 			}
-			data, err := os.ReadFile(p) //nolint:gosec // scanning user-provided source paths
-			if err != nil {
-				return fmt.Errorf("read %s: %w", p, err)
+			data, readErr := os.ReadFile(path) //nolint:gosec // scanner input is user-selected source code
+			if readErr != nil {
+				return fmt.Errorf("read C# file %s: %w", path, readErr)
 			}
-			return fn(filepath.Clean(p), data)
+			return fn(path, data)
 		}); err != nil {
 			return err
 		}
@@ -127,1181 +168,383 @@ func walkCSFiles(ctx context.Context, paths []string, fn func(string, []byte) er
 	return nil
 }
 
-// isCS reports whether path has a .cs extension.
-func isCS(path string) bool {
-	return strings.HasSuffix(strings.ToLower(path), ".cs")
+// isCSharpSource reports whether path has a .cs extension.
+func isCSharpSource(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".cs")
 }
 
-// ---------------------------------------------------------------------------
-// Statement extraction
-// ---------------------------------------------------------------------------
+// runRoslynExtractor runs the Roslyn extractor and decodes the JSON statement
+// stream. The embedded project is cached and published once per content hash;
+// explicit ProjectPath overrides keep direct dotnet run behavior for tests and
+// local extractor development.
+func (s *Scanner) runRoslynExtractor(parent context.Context, files []string) ([]csResult, error) {
+	project, err := s.roslynProject()
+	if err != nil {
+		return nil, err
+	}
+	defer project.cleanup()
 
-// extractStatements resolves supported EF Core raw SQL calls from a source file.
-func extractStatements(path, src string) []scanner.SQLStatement {
-	lines := strings.Split(src, "\n")
-	directives := scanner.ParseDirectives(lines)
-	offsets := buildLineOffsets(src)
-	scopes := collectMethodScopes(src)
-	calls := findCalls(src)
+	timeout := s.Timeout
+	if timeout <= 0 {
+		timeout = extractorTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
 
-	stmts := make([]scanner.SQLStatement, 0, len(calls))
-	for _, c := range calls {
-		scope := findMethodScope(scopes, c.dotPos)
-		if !receiverAllowed(src, c.dotPos, scope) {
+	if project.cached {
+		if _, err := os.Stat(project.executablePath); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("stat cached C# Roslyn extractor binary: %w", err)
+			}
+			dotnet, err := s.dotnetExecutable()
+			if err != nil {
+				return nil, err
+			}
+			if err := ensureCachedRoslynExtractorPublished(ctx, dotnet, project.projectPath, project.executablePath); err != nil {
+				return nil, err
+			}
+		}
+		return runRoslynBinary(ctx, project.executablePath, files, timeout)
+	}
+
+	dotnet, err := s.dotnetExecutable()
+	if err != nil {
+		return nil, err
+	}
+	return runRoslynProject(ctx, dotnet, project.projectPath, files, timeout)
+}
+
+// runRoslynProject executes an explicit extractor project with dotnet run.
+func runRoslynProject(ctx context.Context, dotnet, projectPath string, files []string, timeout time.Duration) ([]csResult, error) {
+	args := make([]string, 0, 4+len(files))
+	args = append(args, "run", "--project", projectPath, "--")
+	args = append(args, files...)
+	//nolint:gosec // dotnet is a resolved SDK executable and args point at scanner-selected source files.
+	//nolint:gosec // dotnet is a resolved SDK executable used to publish scanner-owned embedded code.
+	//nolint:gosec // dotnet is a resolved SDK executable used to publish scanner-owned embedded code.
+	cmd := exec.CommandContext(ctx, dotnet, args...)
+	cmd.Env = dotnetEnv()
+	return decodeRoslynCommand(cmd, ctx, timeout)
+}
+
+// runRoslynBinary executes the cached published extractor binary.
+func runRoslynBinary(ctx context.Context, executablePath string, files []string, timeout time.Duration) ([]csResult, error) {
+	//nolint:gosec // executablePath is the scanner-owned cached extractor binary.
+	cmd := exec.CommandContext(ctx, executablePath, files...)
+	return decodeRoslynCommand(cmd, ctx, timeout)
+}
+
+// decodeRoslynCommand runs cmd and decodes the extractor JSON result stream.
+func decodeRoslynCommand(cmd *exec.Cmd, ctx context.Context, timeout time.Duration) ([]csResult, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("csharp Roslyn extractor timed out after %s", timeout)
+		}
+		return nil, fmt.Errorf("csharp Roslyn extractor failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+
+	var results []csResult
+	if err := json.Unmarshal(stdout.Bytes(), &results); err != nil {
+		return nil, fmt.Errorf("decode C# Roslyn extractor output: %w", err)
+	}
+	return results, nil
+}
+
+// ensureCachedRoslynExtractorPublished publishes a self-contained extractor
+// binary once per embedded content hash. Later scans execute the binary
+// directly without dotnet restore/build/run overhead.
+func ensureCachedRoslynExtractorPublished(ctx context.Context, dotnet, projectPath, executablePath string) error {
+	if _, err := os.Stat(executablePath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat cached C# Roslyn extractor binary: %w", err)
+	}
+
+	roslynBuildMu.Lock()
+	defer roslynBuildMu.Unlock()
+
+	if _, err := os.Stat(executablePath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat cached C# Roslyn extractor binary: %w", err)
+	}
+
+	publishDir := filepath.Dir(executablePath)
+	if err := os.MkdirAll(publishDir, 0o700); err != nil {
+		return fmt.Errorf("create cached C# Roslyn extractor publish dir: %w", err)
+	}
+
+	rid, err := dotnetRuntimeIdentifier()
+	if err != nil {
+		return err
+	}
+
+	args := []string{
+		"publish", pathForDotnet(dotnet, projectPath),
+		"-c", "Release",
+		"-r", rid,
+		"--self-contained", "true",
+		"-p:PublishSingleFile=true",
+		"-p:PublishTrimmed=false",
+		"-o", pathForDotnet(dotnet, publishDir),
+		"--nologo",
+	}
+	//nolint:gosec // dotnet is a resolved SDK executable used to publish scanner-owned embedded code.
+	cmd := exec.CommandContext(ctx, dotnet, args...)
+	cmd.Env = dotnetEnv()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("csharp Roslyn extractor publish timed out")
+		}
+		output := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
+		return fmt.Errorf("publish cached C# Roslyn extractor: %w: %s", err, output)
+	}
+	if _, err := os.Stat(executablePath); err != nil {
+		return fmt.Errorf("published C# Roslyn extractor binary missing at %s: %w", executablePath, err)
+	}
+	//nolint:gosec // cached self-contained binary must be executable by the scanner.
+	if err := os.Chmod(executablePath, 0o700); err != nil {
+		return fmt.Errorf("mark cached C# Roslyn extractor executable: %w", err)
+	}
+	return nil
+}
+
+// dotnetRuntimeIdentifier returns the Runtime Identifier used to publish the
+// cached extractor for the current OS and architecture.
+func dotnetRuntimeIdentifier() (string, error) {
+	arch := map[string]string{
+		"amd64": "x64",
+		"arm64": "arm64",
+	}[runtime.GOARCH]
+	if arch == "" {
+		return "", fmt.Errorf("unsupported architecture for C# Roslyn extractor publish: %s", runtime.GOARCH)
+	}
+
+	switch runtime.GOOS {
+	case "linux":
+		return "linux-" + arch, nil
+	case "darwin":
+		return "osx-" + arch, nil
+	case "windows":
+		return "win-" + arch, nil
+	default:
+		return "", fmt.Errorf("unsupported OS for C# Roslyn extractor publish: %s", runtime.GOOS)
+	}
+}
+
+// pathForDotnet converts WSL /mnt/<drive>/... paths to Windows paths when the
+// selected dotnet executable is Windows dotnet. Linux dotnet must keep POSIX
+// paths unchanged.
+func pathForDotnet(dotnet, path string) string {
+	resolved := dotnet
+	if realPath, err := filepath.EvalSymlinks(dotnet); err == nil {
+		resolved = realPath
+	}
+	if runtime.GOOS != "linux" || !strings.HasPrefix(filepath.ToSlash(resolved), "/mnt/") {
+		return path
+	}
+
+	slashPath := filepath.ToSlash(path)
+	parts := strings.SplitN(strings.TrimPrefix(slashPath, "/mnt/"), "/", 2)
+	if len(parts) != 2 || len(parts[0]) != 1 {
+		return path
+	}
+	return strings.ToUpper(parts[0]) + `:\` + strings.ReplaceAll(parts[1], "/", `\`)
+}
+
+// cachedExtractorName returns the binary name emitted by dotnet publish.
+func cachedExtractorName() string {
+	if runtime.GOOS == "windows" {
+		return "RoslynExtractor.exe"
+	}
+	return "RoslynExtractor"
+}
+
+type roslynRuntimeProject struct {
+	projectPath    string
+	executablePath string
+	cached         bool
+	cleanup        func()
+}
+
+// roslynProject returns a caller-provided project path or a cached copy of the
+// embedded extractor keyed by the embedded project content hash.
+func (s *Scanner) roslynProject() (roslynRuntimeProject, error) {
+	if strings.TrimSpace(s.ProjectPath) != "" {
+		return roslynRuntimeProject{projectPath: s.ProjectPath, cleanup: func() {}}, nil
+	}
+	cacheRoot, err := s.roslynCacheRoot()
+	if err != nil {
+		return roslynRuntimeProject{}, err
+	}
+	return cachedRoslynProject(cacheRoot)
+}
+
+// roslynCacheRoot returns a cache root visible to the dotnet process. Windows
+// dotnet invoked from WSL cannot read Linux-only paths such as /home, so that
+// case uses a cache location on the mounted Windows user profile.
+func (s *Scanner) roslynCacheRoot() (string, error) {
+	dotnetPath := strings.TrimSpace(s.DotnetPath)
+	if dotnetPath == "" {
+		if path, err := exec.LookPath("dotnet"); err == nil {
+			dotnetPath = path
+		}
+	}
+	if resolved, err := filepath.EvalSymlinks(dotnetPath); err == nil {
+		dotnetPath = resolved
+	}
+	if runtime.GOOS == "linux" && strings.HasPrefix(filepath.ToSlash(dotnetPath), "/mnt/") {
+		if root, ok := windowsAccessibleCacheRoot(); ok {
+			return root, nil
+		}
+	}
+	cacheRoot, err := userCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache dir for Roslyn extractor: %w", err)
+	}
+	return filepath.Join(cacheRoot, "valk-guard"), nil
+}
+
+// windowsAccessibleCacheRoot derives a Windows-profile cache path from a WSL
+// checkout under /mnt/<drive>/Users/<user>/....
+func windowsAccessibleCacheRoot() (string, bool) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	parts := strings.Split(filepath.ToSlash(wd), "/")
+	if len(parts) < 5 || parts[1] != "mnt" || !strings.EqualFold(parts[3], "users") {
+		return "", false
+	}
+	return filepath.Clean("/" + filepath.Join(parts[1], parts[2], parts[3], parts[4], "AppData", "Local", "valk-guard")), true
+}
+
+// cachedRoslynProject materializes the embedded C# extractor under cacheRoot so
+// repeated scans can execute a published binary.
+func cachedRoslynProject(cacheRoot string) (roslynRuntimeProject, error) {
+	csproj, program, err := embeddedRoslynFiles()
+	if err != nil {
+		return roslynRuntimeProject{}, err
+	}
+
+	sum := sha256.Sum256(append(append([]byte{}, csproj...), program...))
+	cacheDir := filepath.Join(cacheRoot, "roslynextractor-"+hex.EncodeToString(sum[:])[:16])
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		return roslynRuntimeProject{}, fmt.Errorf("create cached Roslyn extractor dir: %w", err)
+	}
+
+	projectPath := filepath.Join(cacheDir, "RoslynExtractor.csproj")
+	programPath := filepath.Join(cacheDir, "Program.cs")
+	if err := writeFileIfDifferent(projectPath, csproj, 0o600); err != nil {
+		return roslynRuntimeProject{}, fmt.Errorf("write cached Roslyn project: %w", err)
+	}
+	if err := writeFileIfDifferent(programPath, program, 0o600); err != nil {
+		return roslynRuntimeProject{}, fmt.Errorf("write cached Roslyn program: %w", err)
+	}
+
+	return roslynRuntimeProject{
+		projectPath:    projectPath,
+		executablePath: filepath.Join(cacheDir, "publish", cachedExtractorName()),
+		cached:         true,
+		cleanup:        func() {},
+	}, nil
+}
+
+// dotnetExecutable resolves the dotnet executable, returning a scanner-specific
+// error when C# candidates exist but the .NET SDK is unavailable.
+func (s *Scanner) dotnetExecutable() (string, error) {
+	name := strings.TrimSpace(s.DotnetPath)
+	if name == "" {
+		name = "dotnet"
+	}
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("%s; install dotnet or disable the csharp source in .valk-guard.yaml", missingDotnetErrorMsg)
+	}
+	return path, nil
+}
+
+// dotnetEnv keeps .NET subprocesses deterministic and quiet in local scans and
+// CI jobs.
+func dotnetEnv() []string {
+	return append(os.Environ(), "DOTNET_CLI_TELEMETRY_OPTOUT=1", "DOTNET_NOLOGO=1", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1")
+}
+
+// embeddedRoslynFiles reads the embedded extractor project files.
+func embeddedRoslynFiles() (csproj, program []byte, err error) {
+	csproj, err = roslynProject.ReadFile(csprojEmbedPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	program, err = roslynProject.ReadFile(programEmbedPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	return csproj, program, nil
+}
+
+// writeFileIfDifferent avoids rewriting cached project files when their bytes
+// have not changed, preserving incremental build outputs.
+func writeFileIfDifferent(path string, data []byte, perm fs.FileMode) error {
+	existing, err := os.ReadFile(path) //nolint:gosec // path is scanner-owned cache content
+	if err == nil && bytes.Equal(existing, data) {
+		return nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.WriteFile(path, data, perm)
+}
+
+// yieldWithDirectives attaches inline valk-guard disable directives from each
+// C# file to the extracted SQL statements before yielding them to the engine.
+func yieldWithDirectives(
+	ctx context.Context,
+	extracted []csResult,
+	yield func(scanner.SQLStatement, error) bool,
+) {
+	directiveCache := make(map[string][]scanner.Directive)
+
+	for _, e := range extracted {
+		if err := ctx.Err(); err != nil {
+			_ = yield(scanner.SQLStatement{}, err)
+			return
+		}
+		if !scanner.LooksLikeSQL(e.SQL) {
 			continue
 		}
 
-		var vars map[string]varDef
-		if scope != nil {
-			vars = collectVars(src[scope.bodyStart:c.dotPos])
+		directives, ok := directiveCache[e.File]
+		if !ok {
+			data, err := os.ReadFile(e.File) //nolint:gosec // file was already selected for scanning
+			if err != nil {
+				_ = yield(scanner.SQLStatement{}, fmt.Errorf("reading C# file %s for directives: %w", e.File, err))
+				return
+			}
+			directives = scanner.ParseDirectives(strings.Split(string(data), "\n"))
+			directiveCache[e.File] = directives
 		}
 
-		isInterp := isInterpolatedMethod(c.method)
-		sql, ok := parseExpr(c.firstArg, vars, isInterp, 0)
-		if !ok || sql == "" {
-			continue
-		}
-		if !isInterp {
-			sql = normalizeFormatPlaceholders(sql)
-		}
-		if !scanner.LooksLikeSQL(sql) {
-			continue
-		}
-
-		line, col := offsetToLC(offsets, c.dotPos)
-		eLine, eCol := offsetToLC(offsets, c.closePos)
-
-		stmts = append(stmts, scanner.SQLStatement{
-			SQL:       sql,
-			File:      path,
-			Line:      line,
-			Column:    col,
-			EndLine:   eLine,
-			EndColumn: eCol,
+		if !yield(scanner.SQLStatement{
+			SQL:       e.SQL,
+			File:      e.File,
+			Line:      e.Line,
+			Column:    e.Column,
+			EndLine:   e.EndLine,
+			EndColumn: e.EndColumn,
 			Engine:    scanner.EngineCSharp,
-			Disabled:  scanner.DisabledRulesForLine(directives, line),
-		})
-	}
-	return stmts
-}
-
-// isInterpolatedMethod reports whether name expects an interpolated SQL string.
-func isInterpolatedMethod(name string) bool {
-	_, ok := interpolatedMethods[name]
-	return ok
-}
-
-// ---------------------------------------------------------------------------
-// Call finding
-// ---------------------------------------------------------------------------
-
-type callSite struct {
-	dotPos   int    // position of the '.' before the method name
-	method   string // method name
-	firstArg string // raw text of the first argument
-	closePos int    // position of closing ')'
-}
-
-type methodScope struct {
-	bodyStart      int
-	bodyEnd        int
-	dbFacadeParams map[string]struct{}
-}
-
-// findCalls locates candidate ExecuteSql* call sites in source text.
-func findCalls(src string) []callSite {
-	var result []callSite
-	n := len(src)
-
-	for i := 0; i < n; {
-		if next := skipNonCode(src, i); next > i {
-			i = next
-			continue
-		}
-		if src[i] == '.' {
-			if c, next := tryMatchCall(src, i); next > 0 {
-				result = append(result, c)
-				i = next
-				continue
-			}
-		}
-		i++
-	}
-	return result
-}
-
-// tryMatchCall matches a supported ExecuteSql* invocation at dotPos.
-func tryMatchCall(src string, dotPos int) (call callSite, next int) {
-	n := len(src)
-	for _, method := range efCoreMethodNames {
-		end := dotPos + 1 + len(method)
-		if end > n {
-			continue
-		}
-		if src[dotPos+1:end] != method {
-			continue
-		}
-		// Ensure the match is not a prefix of a longer identifier.
-		if end < n && isIdentByte(src[end]) {
-			continue
-		}
-		// Skip whitespace to opening '('.
-		j := end
-		for j < n && isWS(src[j]) {
-			j++
-		}
-		if j >= n || src[j] != '(' {
-			continue
-		}
-		argText, closePos := extractFirstArg(src, j+1)
-		if closePos < 0 {
-			continue
-		}
-		return callSite{
-			dotPos:   dotPos,
-			method:   method,
-			firstArg: argText,
-			closePos: closePos,
-		}, closePos + 1
-	}
-	return callSite{}, 0
-}
-
-// receiverAllowed reports whether the call receiver matches a supported EF Core pattern.
-func receiverAllowed(src string, dotPos int, scope *methodScope) bool {
-	member, prev, ok := receiverMembers(src, dotPos)
-	if !ok {
-		return false
-	}
-	if member == "Database" {
-		return prev != ""
-	}
-	if scope == nil {
-		return false
-	}
-
-	names := make(map[string]struct{}, len(scope.dbFacadeParams))
-	for name := range scope.dbFacadeParams {
-		names[name] = struct{}{}
-	}
-	for name := range collectDatabaseFacadeNames(src[scope.bodyStart:dotPos]) {
-		names[name] = struct{}{}
-	}
-
-	if _, ok := names[member]; ok {
-		return true
-	}
-	return (prev == "this" || prev == "base") && hasName(names, member)
-}
-
-// receiverMembers returns the immediate receiver member and its parent member.
-func receiverMembers(src string, dotPos int) (member, prev string, ok bool) {
-	j := dotPos - 1
-	for j >= 0 && isWS(src[j]) {
-		j--
-	}
-	if j < 0 || !isIdentByte(src[j]) {
-		return "", "", false
-	}
-	end := j + 1
-	for j >= 0 && isIdentByte(src[j]) {
-		j--
-	}
-	member = src[j+1 : end]
-
-	k := j
-	for k >= 0 && isWS(src[k]) {
-		k--
-	}
-	if k < 0 || src[k] != '.' {
-		return member, "", true
-	}
-	k--
-	for k >= 0 && isWS(src[k]) {
-		k--
-	}
-	if k < 0 || !isIdentByte(src[k]) {
-		return member, "", true
-	}
-	prevEnd := k + 1
-	for k >= 0 && isIdentByte(src[k]) {
-		k--
-	}
-	return member, src[k+1 : prevEnd], true
-}
-
-// extractFirstArg extracts the raw text of the first argument from a call.
-// pos is the position after '('. Returns (argText, closeParenPos).
-func extractFirstArg(src string, pos int) (argText string, closeParenPos int) {
-	n := len(src)
-	depth := 1
-
-	start := pos
-	for start < n && isWS(src[start]) {
-		start++
-	}
-	argEnd := -1
-
-	for i := start; i < n; {
-		if next := skipNonCode(src, i); next > i {
-			i = next
-			continue
-		}
-		switch src[i] {
-		case '(':
-			depth++
-		case ')':
-			depth--
-			if depth == 0 {
-				if argEnd < 0 {
-					argEnd = i
-				}
-				return strings.TrimSpace(src[start:argEnd]), i
-			}
-		case ',':
-			if depth == 1 && argEnd < 0 {
-				argEnd = i
-			}
-		}
-		i++
-	}
-	return "", -1
-}
-
-// collectMethodScopes finds method-like bodies and the DatabaseFacade params they declare.
-func collectMethodScopes(src string) []methodScope {
-	var scopes []methodScope
-	for i := 0; i < len(src); i++ {
-		if next := skipNonCode(src, i); next > i {
-			i = next - 1
-			continue
-		}
-		if src[i] != '{' {
-			continue
-		}
-		closeParen := prevNonWS(src, i-1)
-		if closeParen < 0 || src[closeParen] != ')' {
-			continue
-		}
-		openParen := findMatchingOpenParen(src, closeParen)
-		if openParen < 0 {
-			continue
-		}
-		name := identBeforePos(src, openParen)
-		if name == "" || isMethodBlockKeyword(name) {
-			continue
-		}
-		closeBrace := findMatchingCloseBrace(src, i)
-		if closeBrace < 0 {
-			continue
-		}
-		scopes = append(scopes, methodScope{
-			bodyStart:      i + 1,
-			bodyEnd:        closeBrace,
-			dbFacadeParams: collectDatabaseFacadeNames(src[openParen+1 : closeParen]),
-		})
-	}
-	return scopes
-}
-
-// findMethodScope returns the innermost method scope containing pos.
-func findMethodScope(scopes []methodScope, pos int) *methodScope {
-	var best *methodScope
-	bestLen := 0
-	for i := range scopes {
-		scope := &scopes[i]
-		if pos < scope.bodyStart || pos > scope.bodyEnd {
-			continue
-		}
-		length := scope.bodyEnd - scope.bodyStart
-		if best == nil || length < bestLen {
-			best = scope
-			bestLen = length
+			Disabled:  scanner.DisabledRulesForLine(directives, e.Line),
+		}, nil) {
+			return
 		}
 	}
-	return best
-}
-
-// findMatchingOpenParen returns the matching '(' for a ')' at closePos.
-func findMatchingOpenParen(src string, closePos int) int {
-	depth := 0
-	for i := closePos; i >= 0; i-- {
-		switch src[i] {
-		case ')':
-			depth++
-		case '(':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-// findMatchingCloseBrace returns the matching '}' for a '{' at openPos.
-func findMatchingCloseBrace(src string, openPos int) int {
-	depth := 0
-	for i := openPos; i < len(src); i++ {
-		if next := skipNonCode(src, i); next > i {
-			i = next - 1
-			continue
-		}
-		switch src[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-	}
-	return -1
-}
-
-var methodBlockKeywords = map[string]struct{}{
-	"if": {}, "for": {}, "foreach": {}, "while": {}, "switch": {},
-	"catch": {}, "using": {}, "lock": {}, "checked": {}, "unchecked": {},
-}
-
-// isMethodBlockKeyword reports whether name begins a control-flow block, not a method.
-func isMethodBlockKeyword(name string) bool {
-	_, ok := methodBlockKeywords[name]
-	return ok
-}
-
-// ---------------------------------------------------------------------------
-// SQL resolution
-// ---------------------------------------------------------------------------
-
-type varDef struct {
-	expr string // raw RHS expression text
-}
-
-// parseExpr tries to resolve a C# expression to SQL text.
-// It handles string literals, variable references, and simple concatenation.
-func parseExpr(expr string, vars map[string]varDef, isInterp bool, depth int) (string, bool) {
-	if depth > 5 {
-		return "", false
-	}
-	expr = strings.TrimSpace(expr)
-	if expr == "" {
-		return "", false
-	}
-
-	var result strings.Builder
-	remaining := expr
-
-	for remaining != "" {
-		remaining = strings.TrimSpace(remaining)
-		if remaining == "" {
-			break
-		}
-
-		// Try string literal.
-		if content, rest, ok := tryParseStringLiteral(remaining); ok {
-			result.WriteString(content)
-			remaining = strings.TrimSpace(rest)
-			if strings.HasPrefix(remaining, "+") {
-				remaining = strings.TrimSpace(remaining[1:])
-				continue
-			}
-			if remaining == "" {
-				return result.String(), true
-			}
-			return "", false
-		}
-
-		// Try identifier (variable reference).
-		name := readIdent(remaining)
-		if name != "" {
-			rest := strings.TrimSpace(remaining[len(name):])
-			if v, ok := vars[name]; ok {
-				resolved, rok := parseExpr(v.expr, vars, isInterp, depth+1)
-				if !rok {
-					return "", false
-				}
-				result.WriteString(resolved)
-				remaining = rest
-				if strings.HasPrefix(remaining, "+") {
-					remaining = strings.TrimSpace(remaining[1:])
-					continue
-				}
-				if remaining == "" {
-					return result.String(), true
-				}
-				return "", false
-			}
-			return "", false // unresolved variable
-		}
-
-		return "", false // unrecognized expression
-	}
-
-	if result.Len() == 0 {
-		return "", false
-	}
-	return result.String(), true
-}
-
-// tryParseStringLiteral attempts to parse a C# string literal from the start
-// of s. Returns (content, rest, ok). The content has interpolation expressions
-// replaced with $1, $2 placeholders and escape sequences decoded.
-func tryParseStringLiteral(s string) (content, rest string, ok bool) {
-	// $@"..." or @$"..." (verbatim interpolated)
-	if strings.HasPrefix(s, `$@"`) || strings.HasPrefix(s, `@$"`) {
-		content, rest := readVerbInterpStr(s[3:])
-		return content, rest, true
-	}
-	// $"""...""" (raw interpolated)
-	if len(s) >= 4 && s[0] == '$' && s[1] == '"' && s[2] == '"' && s[3] == '"' {
-		content, rest := readRawInterpStr(s[4:])
-		return content, rest, true
-	}
-	// $"..." (interpolated)
-	if len(s) >= 2 && s[0] == '$' && s[1] == '"' {
-		content, rest := readInterpStr(s[2:])
-		return content, rest, true
-	}
-	// @"..." (verbatim)
-	if len(s) >= 2 && s[0] == '@' && s[1] == '"' {
-		content, rest := readVerbStr(s[2:])
-		return content, rest, true
-	}
-	// """...""" (raw)
-	if len(s) >= 6 && s[0] == '"' && s[1] == '"' && s[2] == '"' {
-		content, rest := readRawStr(s[3:])
-		return content, rest, true
-	}
-	// regular string literal
-	if len(s) >= 1 && s[0] == '"' {
-		content, rest := readRegStr(s[1:])
-		return content, rest, true
-	}
-	return "", s, false
-}
-
-// ---------------------------------------------------------------------------
-// String content reading — each function starts after the opening delimiter
-// and returns (content, rest) where rest is the text after the closing delimiter.
-// ---------------------------------------------------------------------------
-
-// readRegStr reads a regular C# string ("...") starting after the opening ".
-func readRegStr(s string) (content, rest string) {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '\\':
-			if i+1 < len(s) {
-				i++
-				switch s[i] {
-				case 'n':
-					b.WriteByte('\n')
-				case 'r':
-					b.WriteByte('\r')
-				case 't':
-					b.WriteByte('\t')
-				case '\\':
-					b.WriteByte('\\')
-				case '"':
-					b.WriteByte('"')
-				case '0':
-					b.WriteByte(0)
-				default:
-					b.WriteByte('\\')
-					b.WriteByte(s[i])
-				}
-			}
-		case '"':
-			return b.String(), strings.TrimSpace(s[i+1:])
-		default:
-			b.WriteByte(s[i])
-		}
-	}
-	return b.String(), ""
-}
-
-// readVerbStr reads a verbatim C# string (@"...") starting after @".
-func readVerbStr(s string) (content, rest string) {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '"' {
-			if i+1 < len(s) && s[i+1] == '"' {
-				b.WriteByte('"')
-				i++
-				continue
-			}
-			return b.String(), strings.TrimSpace(s[i+1:])
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String(), ""
-}
-
-// readRawStr reads a raw C# string ("""...""") starting after the opening """.
-func readRawStr(s string) (content, rest string) {
-	for i := 0; i+2 < len(s); i++ {
-		if s[i] == '"' && s[i+1] == '"' && s[i+2] == '"' {
-			return trimRawContent(s[:i]), strings.TrimSpace(s[i+3:])
-		}
-	}
-	return trimRawContent(s), ""
-}
-
-// readInterpStr reads an interpolated C# string ($"...") starting after $".
-// Replaces {expr} with $1, $2, etc.
-func readInterpStr(s string) (content, rest string) {
-	var b strings.Builder
-	ph := 0
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '\\':
-			if i+1 < len(s) {
-				i++
-				switch s[i] {
-				case 'n':
-					b.WriteByte('\n')
-				case 'r':
-					b.WriteByte('\r')
-				case 't':
-					b.WriteByte('\t')
-				case '\\':
-					b.WriteByte('\\')
-				case '"':
-					b.WriteByte('"')
-				case '0':
-					b.WriteByte(0)
-				default:
-					b.WriteByte('\\')
-					b.WriteByte(s[i])
-				}
-			}
-		case '{':
-			if i+1 < len(s) && s[i+1] == '{' {
-				b.WriteByte('{')
-				i++
-				continue
-			}
-			end := findCloseBrace(s, i+1)
-			ph++
-			fmt.Fprintf(&b, "$%d", ph)
-			i = end
-		case '}':
-			if i+1 < len(s) && s[i+1] == '}' {
-				b.WriteByte('}')
-				i++
-				continue
-			}
-			b.WriteByte('}')
-		case '"':
-			return b.String(), strings.TrimSpace(s[i+1:])
-		default:
-			b.WriteByte(s[i])
-		}
-	}
-	return b.String(), ""
-}
-
-// readVerbInterpStr reads a verbatim interpolated string ($@"..." or @$"...").
-func readVerbInterpStr(s string) (content, rest string) {
-	var b strings.Builder
-	ph := 0
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '{':
-			if i+1 < len(s) && s[i+1] == '{' {
-				b.WriteByte('{')
-				i++
-				continue
-			}
-			end := findCloseBrace(s, i+1)
-			ph++
-			fmt.Fprintf(&b, "$%d", ph)
-			i = end
-		case '}':
-			if i+1 < len(s) && s[i+1] == '}' {
-				b.WriteByte('}')
-				i++
-				continue
-			}
-			b.WriteByte('}')
-		case '"':
-			if i+1 < len(s) && s[i+1] == '"' {
-				b.WriteByte('"')
-				i++
-				continue
-			}
-			return b.String(), strings.TrimSpace(s[i+1:])
-		default:
-			b.WriteByte(s[i])
-		}
-	}
-	return b.String(), ""
-}
-
-// readRawInterpStr reads a raw interpolated string ($"""...""").
-func readRawInterpStr(s string) (content, rest string) {
-	var b strings.Builder
-	ph := 0
-	for i := 0; i < len(s); i++ {
-		if i+2 < len(s) && s[i] == '"' && s[i+1] == '"' && s[i+2] == '"' {
-			return trimRawContent(b.String()), strings.TrimSpace(s[i+3:])
-		}
-		switch s[i] {
-		case '{':
-			if i+1 < len(s) && s[i+1] == '{' {
-				b.WriteByte('{')
-				i++
-				continue
-			}
-			end := findCloseBrace(s, i+1)
-			ph++
-			fmt.Fprintf(&b, "$%d", ph)
-			i = end
-		case '}':
-			if i+1 < len(s) && s[i+1] == '}' {
-				b.WriteByte('}')
-				i++
-				continue
-			}
-			b.WriteByte('}')
-		default:
-			b.WriteByte(s[i])
-		}
-	}
-	return trimRawContent(b.String()), ""
-}
-
-// findCloseBrace finds the matching } for an interpolation expression.
-// It handles all C# string literal types (regular, verbatim, raw,
-// interpolated) inside the expression by reusing skipStringLit.
-func findCloseBrace(s string, pos int) int {
-	depth := 1
-	for i := pos; i < len(s) && depth > 0; {
-		// Skip any string/char literal that starts at i.
-		if next := skipStringLit(s, i); next > i {
-			i = next
-			continue
-		}
-		switch s[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i
-			}
-		}
-		i++
-	}
-	return len(s) - 1
-}
-
-// trimRawContent strips the required leading/trailing newlines from raw string content.
-func trimRawContent(s string) string {
-	if strings.HasPrefix(s, "\r\n") {
-		s = s[2:]
-	} else if strings.HasPrefix(s, "\n") {
-		s = s[1:]
-	}
-	if strings.HasSuffix(s, "\r\n") {
-		s = s[:len(s)-2]
-	} else if strings.HasSuffix(s, "\n") {
-		s = s[:len(s)-1]
-	}
-	return s
-}
-
-// ---------------------------------------------------------------------------
-// Code region skipping — used to identify code vs non-code (comments/strings)
-// ---------------------------------------------------------------------------
-
-// skipNonCode skips past comments, strings, and char literals at position i.
-// Returns the position after the skipped element, or i if nothing to skip.
-func skipNonCode(src string, i int) int {
-	n := len(src)
-	// Line comment
-	if i+1 < n && src[i] == '/' && src[i+1] == '/' {
-		j := i + 2
-		for j < n && src[j] != '\n' {
-			j++
-		}
-		if j < n {
-			j++
-		}
-		return j
-	}
-	// Block comment
-	if i+1 < n && src[i] == '/' && src[i+1] == '*' {
-		j := i + 2
-		for j+1 < n {
-			if src[j] == '*' && src[j+1] == '/' {
-				return j + 2
-			}
-			j++
-		}
-		return n
-	}
-	return skipStringLit(src, i)
-}
-
-// skipStringLit checks if position i starts a string or char literal.
-func skipStringLit(src string, i int) int {
-	n := len(src)
-	// $@"..." or @$"..."
-	if i+2 < n &&
-		((src[i] == '$' && src[i+1] == '@' && src[i+2] == '"') ||
-			(src[i] == '@' && src[i+1] == '$' && src[i+2] == '"')) {
-		return skipVerbInterpStrLit(src, i+3)
-	}
-	// $"""..."""
-	if i+3 < n && src[i] == '$' && src[i+1] == '"' && src[i+2] == '"' && src[i+3] == '"' {
-		return skipRawStrLit(src, i+4)
-	}
-	// $"..."
-	if i+1 < n && src[i] == '$' && src[i+1] == '"' {
-		return skipInterpStrLit(src, i+2)
-	}
-	// @"..."
-	if i+1 < n && src[i] == '@' && src[i+1] == '"' {
-		return skipVerbStrLit(src, i+2)
-	}
-	// """..."""
-	if i+2 < n && src[i] == '"' && src[i+1] == '"' && src[i+2] == '"' {
-		return skipRawStrLit(src, i+3)
-	}
-	// "..."
-	if i < n && src[i] == '"' {
-		return skipRegStrLit(src, i+1)
-	}
-	// '...'
-	if i < n && src[i] == '\'' {
-		return skipCharLit(src, i+1)
-	}
-	return i
-}
-
-// skipRegStrLit skips a regular string literal and returns the next position.
-func skipRegStrLit(src string, pos int) int {
-	for i := pos; i < len(src); i++ {
-		if src[i] == '\\' {
-			i++
-			continue
-		}
-		if src[i] == '"' {
-			return i + 1
-		}
-	}
-	return len(src)
-}
-
-// skipVerbStrLit skips a verbatim string literal and returns the next position.
-func skipVerbStrLit(src string, pos int) int {
-	for i := pos; i < len(src); i++ {
-		if src[i] == '"' {
-			if i+1 < len(src) && src[i+1] == '"' {
-				i++
-				continue
-			}
-			return i + 1
-		}
-	}
-	return len(src)
-}
-
-// skipInterpStrLit skips an interpolated string literal and returns the next position.
-func skipInterpStrLit(src string, pos int) int {
-	for i := pos; i < len(src); i++ {
-		switch src[i] {
-		case '\\':
-			i++
-		case '{':
-			if i+1 < len(src) && src[i+1] == '{' {
-				i++
-				continue
-			}
-			i = skipBraceExprLit(src, i+1) - 1
-		case '"':
-			return i + 1
-		}
-	}
-	return len(src)
-}
-
-// skipVerbInterpStrLit skips a verbatim interpolated string literal.
-func skipVerbInterpStrLit(src string, pos int) int {
-	for i := pos; i < len(src); i++ {
-		switch src[i] {
-		case '{':
-			if i+1 < len(src) && src[i+1] == '{' {
-				i++
-				continue
-			}
-			i = skipBraceExprLit(src, i+1) - 1
-		case '"':
-			if i+1 < len(src) && src[i+1] == '"' {
-				i++
-				continue
-			}
-			return i + 1
-		}
-	}
-	return len(src)
-}
-
-// skipRawStrLit skips a raw string literal and returns the next position.
-func skipRawStrLit(src string, pos int) int {
-	for i := pos; i+2 < len(src); i++ {
-		if src[i] == '"' && src[i+1] == '"' && src[i+2] == '"' {
-			return i + 3
-		}
-	}
-	return len(src)
-}
-
-// skipCharLit skips a character literal and returns the next position.
-func skipCharLit(src string, pos int) int {
-	for i := pos; i < len(src); i++ {
-		if src[i] == '\\' {
-			i++
-			continue
-		}
-		if src[i] == '\'' {
-			return i + 1
-		}
-	}
-	return len(src)
-}
-
-// skipBraceExprLit skips an interpolated brace expression and returns the next position.
-func skipBraceExprLit(src string, pos int) int {
-	depth := 1
-	for i := pos; i < len(src) && depth > 0; i++ {
-		if next := skipStringLit(src, i); next > i {
-			i = next - 1
-			continue
-		}
-		switch src[i] {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return i + 1
-			}
-		}
-	}
-	return len(src)
-}
-
-// ---------------------------------------------------------------------------
-// Variable collection
-// ---------------------------------------------------------------------------
-
-// collectVars gathers simple string-backed variable assignments from src.
-func collectVars(src string) map[string]varDef {
-	vars := make(map[string]varDef)
-	n := len(src)
-
-	for i := 0; i < n; {
-		if next := skipNonCode(src, i); next > i {
-			i = next
-			continue
-		}
-		if src[i] == '=' && !isCompoundOrComparison(src, i, n) {
-			name := identBefore(src, i)
-			if name == "" || isCSharpKeyword(name) {
-				i++
-				continue
-			}
-			rhsStart := i + 1
-			for rhsStart < n && isWS(src[rhsStart]) {
-				rhsStart++
-			}
-			rhsEnd := findSemicolon(src, rhsStart)
-			if rhsEnd < 0 {
-				i++
-				continue
-			}
-			rhs := strings.TrimSpace(src[rhsStart:rhsEnd])
-			if rhs != "" && isStringLiteralStart(rhs) {
-				vars[name] = varDef{expr: rhs}
-			}
-			i = rhsEnd + 1
-			continue
-		}
-		i++
-	}
-	return vars
-}
-
-// collectDatabaseFacadeNames extracts identifiers declared with DatabaseFacade type text.
-func collectDatabaseFacadeNames(src string) map[string]struct{} {
-	names := make(map[string]struct{})
-	n := len(src)
-
-	for i := 0; i < n; {
-		if next := skipNonCode(src, i); next > i {
-			i = next
-			continue
-		}
-		typeLen := matchDatabaseFacadeType(src, i)
-		if typeLen == 0 {
-			i++
-			continue
-		}
-
-		j := i + typeLen
-		for j < n && isWS(src[j]) {
-			j++
-		}
-		if j < n && src[j] == '?' {
-			j++
-			for j < n && isWS(src[j]) {
-				j++
-			}
-		}
-
-		name := readIdent(src[j:])
-		if name != "" && !isCSharpKeyword(name) {
-			names[name] = struct{}{}
-			i = j + len(name)
-			continue
-		}
-		i++
-	}
-
-	return names
-}
-
-// matchDatabaseFacadeType reports the length of a DatabaseFacade type token at pos.
-func matchDatabaseFacadeType(src string, pos int) int {
-	candidates := []string{
-		"Microsoft.EntityFrameworkCore.Infrastructure.DatabaseFacade",
-		"DatabaseFacade",
-	}
-	for _, candidate := range candidates {
-		end := pos + len(candidate)
-		if end > len(src) || src[pos:end] != candidate {
-			continue
-		}
-		if pos > 0 && (isIdentByte(src[pos-1]) || src[pos-1] == '.') {
-			continue
-		}
-		if end < len(src) && (isIdentByte(src[end]) || src[end] == '.') {
-			continue
-		}
-		return len(candidate)
-	}
-	return 0
-}
-
-// isCompoundOrComparison reports whether '=' at i belongs to a non-assignment operator.
-func isCompoundOrComparison(src string, i, n int) bool {
-	if i+1 < n && (src[i+1] == '=' || src[i+1] == '>') {
-		return true
-	}
-	if i > 0 {
-		p := src[i-1]
-		if p == '!' || p == '<' || p == '>' || p == '=' ||
-			p == '+' || p == '-' || p == '*' || p == '/' ||
-			p == '%' || p == '&' || p == '|' || p == '^' || p == '?' {
-			return true
-		}
-	}
-	return false
-}
-
-// identBefore returns the identifier immediately before pos, excluding member assignments.
-func identBefore(src string, pos int) string {
-	j := pos - 1
-	for j >= 0 && (src[j] == ' ' || src[j] == '\t') {
-		j--
-	}
-	if j < 0 || !isIdentByte(src[j]) {
-		return ""
-	}
-	end := j + 1
-	for j >= 0 && isIdentByte(src[j]) {
-		j--
-	}
-	name := src[j+1 : end]
-	// Reject member/property assignments like obj.Query = "..." — the dot
-	// means this is not a local variable declaration.
-	if j >= 0 && src[j] == '.' {
-		return ""
-	}
-	return name
-}
-
-// identBeforePos returns the identifier immediately preceding pos.
-func identBeforePos(src string, pos int) string {
-	j := prevNonWS(src, pos-1)
-	if j < 0 || !isIdentByte(src[j]) {
-		return ""
-	}
-	end := j + 1
-	for j >= 0 && isIdentByte(src[j]) {
-		j--
-	}
-	return src[j+1 : end]
-}
-
-// findSemicolon returns the next statement terminator starting from pos.
-func findSemicolon(src string, pos int) int {
-	for i := pos; i < len(src); {
-		if next := skipNonCode(src, i); next > i {
-			i = next
-			continue
-		}
-		if src[i] == ';' {
-			return i
-		}
-		if src[i] == '{' || src[i] == '}' {
-			return -1
-		}
-		i++
-	}
-	return -1
-}
-
-// isStringLiteralStart reports whether s begins with a supported C# string literal.
-func isStringLiteralStart(s string) bool {
-	if s == "" {
-		return false
-	}
-	switch s[0] {
-	case '"':
-		return true
-	case '@':
-		return len(s) > 1 && (s[1] == '"' || (s[1] == '$' && len(s) > 2 && s[2] == '"'))
-	case '$':
-		return len(s) > 1 && (s[1] == '"' || (s[1] == '@' && len(s) > 2 && s[2] == '"'))
-	}
-	return false
-}
-
-var csharpKeywords = map[string]struct{}{
-	"if": {}, "else": {}, "for": {}, "foreach": {}, "while": {},
-	"do": {}, "switch": {}, "case": {}, "break": {}, "continue": {},
-	"return": {}, "new": {}, "null": {}, "true": {}, "false": {},
-	"this": {}, "base": {}, "class": {}, "struct": {}, "interface": {},
-	"void": {}, "typeof": {}, "sizeof": {}, "nameof": {},
-	"throw": {}, "try": {}, "catch": {}, "finally": {},
-	"lock": {}, "using": {}, "checked": {}, "unchecked": {},
-	"default": {}, "delegate": {}, "event": {}, "fixed": {},
-	"goto": {}, "implicit": {}, "explicit": {}, "extern": {},
-	"operator": {}, "params": {}, "ref": {}, "out": {},
-	"stackalloc": {}, "unsafe": {}, "volatile": {},
-}
-
-// isCSharpKeyword reports whether s is a reserved C# keyword used for filtering.
-func isCSharpKeyword(s string) bool {
-	_, ok := csharpKeywords[s]
-	return ok
-}
-
-// hasName reports whether name exists in the identifier set.
-func hasName(names map[string]struct{}, name string) bool {
-	_, ok := names[name]
-	return ok
-}
-
-// ---------------------------------------------------------------------------
-// Placeholder normalization
-// ---------------------------------------------------------------------------
-
-// normalizeFormatPlaceholders converts .NET format string placeholders ({0},
-// {1}, ...) to PostgreSQL-style placeholders ($1, $2, ...).
-func normalizeFormatPlaceholders(sql string) string {
-	var b strings.Builder
-	changed := false
-	for i := 0; i < len(sql); i++ {
-		if sql[i] == '{' {
-			j := i + 1
-			for j < len(sql) && sql[j] >= '0' && sql[j] <= '9' {
-				j++
-			}
-			if j > i+1 && j < len(sql) && sql[j] == '}' {
-				num := 0
-				for k := i + 1; k < j; k++ {
-					num = num*10 + int(sql[k]-'0')
-				}
-				fmt.Fprintf(&b, "$%d", num+1)
-				i = j
-				changed = true
-				continue
-			}
-		}
-		b.WriteByte(sql[i])
-	}
-	if !changed {
-		return sql
-	}
-	return b.String()
-}
-
-// ---------------------------------------------------------------------------
-// Utility helpers
-// ---------------------------------------------------------------------------
-
-// buildLineOffsets builds a line-start offset table for source positions.
-func buildLineOffsets(src string) []int {
-	offsets := []int{0}
-	for i := 0; i < len(src); i++ {
-		if src[i] == '\n' {
-			offsets = append(offsets, i+1)
-		}
-	}
-	return offsets
-}
-
-// offsetToLC converts a byte offset into 1-based line and column coordinates.
-func offsetToLC(offsets []int, pos int) (line, col int) {
-	lo, hi := 0, len(offsets)-1
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		if offsets[mid] <= pos {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	return lo + 1, pos - offsets[lo] + 1
-}
-
-// prevNonWS returns the previous non-whitespace byte index before or at pos.
-func prevNonWS(src string, pos int) int {
-	for pos >= 0 && isWS(src[pos]) {
-		pos--
-	}
-	return pos
-}
-
-// isIdentByte reports whether c is valid in a C# identifier tail.
-func isIdentByte(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-		(c >= '0' && c <= '9') || c == '_'
-}
-
-// readIdent reads the leading C# identifier from s.
-func readIdent(s string) string {
-	if s == "" {
-		return ""
-	}
-	c := s[0]
-	if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '_' {
-		return ""
-	}
-	i := 1
-	for i < len(s) && isIdentByte(s[i]) {
-		i++
-	}
-	return s[:i]
-}
-
-// isWS reports whether c is recognized as scanner whitespace.
-func isWS(c byte) bool {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }

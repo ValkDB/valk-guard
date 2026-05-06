@@ -33,10 +33,21 @@ jobs:
         with:
           dotnet-version: '8.0.404'
 
+      - name: Cache NuGet packages
+        uses: actions/cache@0637707758659e81f5f0c2bb7b1d276a4737b6e0 # v4.3.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('internal/scanner/csharp/roslynextractor/**/*.csproj') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-
+
       - name: Run tests
         env:
           VALK_REQUIRE_DOTNET: '1'
         run: go test -race ./...
+
+      - name: Run Roslyn extractor tests
+        run: dotnet test internal/scanner/csharp/roslynextractor/RoslynExtractor.Tests/RoslynExtractor.Tests.csproj --nologo
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@ec59f474b9834571250b370d4735c50f8e2d1e29 # v7.0.0

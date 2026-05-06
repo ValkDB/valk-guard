@@ -73,7 +73,7 @@ Examples:
 
 - `internal/scanner/goqu/goqu_scanner.go` (Go AST-based)
 - `internal/scanner/sqlalchemy/sqlalchemy_scanner.go` (Python subprocess)
-- `internal/scanner/csharp/scanner.go` (Go wrapper around an embedded Roslyn AST extractor; raw EF Core APIs plus synthetic SQL for deterministic DbSet/LINQ chains)
+- `internal/scanner/csharp/scanner.go` (Go wrapper around a cached embedded Roslyn AST extractor; raw EF Core APIs plus synthetic SQL for deterministic DbSet/LINQ chains)
 
 ### 3) Register Scanner Binding
 
@@ -89,11 +89,32 @@ Add an entry in `defaultScannerBindings()`:
 
 File discovery is automatic from registered extensions via `requiredExtensions(...)` and `collectScannerInputs(...)`. Top-level `sources.<engine>: false` config filters the binding before discovery, so disabled sources do not collect files or invoke external runtimes.
 
+The C# wrapper materializes the embedded Roslyn extractor under `os.UserCacheDir()/valk-guard/roslynextractor-<contenthash>`, publishes it once as a self-contained binary for the current OS/architecture, and then executes that binary directly until the embedded extractor source changes. This trades cache size for scan-time startup cost: the published binary is intentionally not committed to the repository, is about 80 MB on linux-x64 with Roslyn included, and lets repeated scans avoid `dotnet run`, restore, and build work.
+
 Synthetic SQL conventions:
 
 - Prefix generated statements with `/* valk-guard:synthetic <source> */` so output makes the origin explicit.
 - Render non-literal bind values as PostgreSQL-style numbered placeholders (`$1`, `$2`, ...), resetting numbering per emitted statement.
 - Prefer structurally valid SQL over perfect fidelity; the parser must accept the statement and the rule engine must see the relevant clauses.
+
+
+Parity checklist for ORM/query-builder scanners:
+
+| Feature | Expected synthetic shape |
+| --- | --- |
+| Select star | `SELECT * FROM table` |
+| Missing write filter | `UPDATE table SET col = $1` / `DELETE FROM table` without `WHERE` |
+| Unbounded select | `SELECT cols FROM table` without `LIMIT` |
+| LIKE / ILIKE | `col LIKE pattern` / `col ILIKE pattern` |
+| IN / NOT IN | `col IN ($1, $2, $3)` / `col NOT IN ($1, $2, $3)` |
+| Order / offset | `ORDER BY col ASC|DESC ... OFFSET n` |
+| Group / having | `GROUP BY col HAVING predicate` |
+| Distinct | `SELECT DISTINCT ...` |
+| Aggregates | `SUM(col)`, `MIN(col)`, `MAX(col)`, `AVG(col)`, `COUNT(*)` |
+| Joins | Preserve join type and emit real `ON a = b` when the AST exposes it; otherwise use `ON 1=1` |
+| Row locks | Preserve raw `FOR UPDATE`; only synthesize ORM lock methods that exist in the source framework |
+
+Known caveat: raw SQL format-string normalization rewrites `{{0}}`, `{{1}}`, ... to `$1`, `$2`, ... for parser/rule consistency. Literal brace placeholders in raw SQL text may be rewritten.
 
 ### 4) Optional: Add Model Extractor
 
