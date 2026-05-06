@@ -8,6 +8,7 @@ This directory contains examples demonstrating how Valk Guard scans different la
 *   `go_std/`: Go code using the standard `database/sql` package.
 *   `go_goqu/`: Go code using the `goqu` query builder (AST analysis).
 *   `python_sqlalchemy/`: Python code using SQLAlchemy ORM/Core (AST analysis).
+*   C# EF Core scanning is covered by unit tests and the Roslyn AST extractor; examples can be added as a dedicated folder when docs ship C# snippets.
 *   `schema_drift/`: Go models + SQL migrations demonstrating schema-drift detection (VG101+).
 
 ## Running the Examples
@@ -35,16 +36,16 @@ The linter will flag deliberate anti-patterns included in these files (e.g., `SE
 
 Each example folder contains explicit labeled snippets for all built-in rules `VG001` through `VG008`.
 
-| Rule | `raw_sql` | `go_std` | `go_goqu` | `python_sqlalchemy` |
-| --- | --- | --- | --- | --- |
-| VG001 `select-star` | yes | yes | yes | yes |
-| VG002 `missing-where-update` | yes | yes | yes | yes |
-| VG003 `missing-where-delete` | yes | yes | yes | yes |
-| VG004 `unbounded-select` | yes | yes | yes | yes |
-| VG005 `like-leading-wildcard` | yes | yes | yes | yes |
-| VG006 `select-for-update-no-where` | yes | yes | yes (ORM chain) | yes (ORM chain) |
-| VG007 `destructive-ddl` | yes | yes | yes (raw `goqu.L`) | yes (raw `text(...)`) |
-| VG008 `non-concurrent-index` | yes | yes | yes (raw `goqu.L`) | yes (raw `text(...)`) |
+| Rule | `raw_sql` | `go_std` | `go_goqu` | `python_sqlalchemy` | C# EF Core tests |
+| --- | --- | --- | --- | --- | --- |
+| VG001 `select-star` | yes | yes | yes | yes | yes |
+| VG002 `missing-where-update` | yes | yes | yes | yes | yes |
+| VG003 `missing-where-delete` | yes | yes | yes | yes | yes |
+| VG004 `unbounded-select` | yes | yes | yes | yes | yes |
+| VG005 `like-leading-wildcard` | yes | yes | yes | yes | yes |
+| VG006 `select-for-update-no-where` | yes | yes | yes (ORM chain) | yes (ORM chain) | yes (raw EF SQL) |
+| VG007 `destructive-ddl` | yes | yes | yes (raw `goqu.L`) | yes (raw `text(...)`) | yes (raw EF SQL) |
+| VG008 `non-concurrent-index` | yes | yes | yes (raw `goqu.L`) | yes (raw `text(...)`) | yes (raw EF SQL) |
 
 The `schema_drift/` example demonstrates VG101 (dropped-column) by including a model field that references a column not present in migrations.
 

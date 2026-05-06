@@ -26,6 +26,8 @@ const (
 	EngineGoqu Engine = "goqu"
 	// EngineSQLAlchemy represents SQL extracted/synthesized from SQLAlchemy usage.
 	EngineSQLAlchemy Engine = "sqlalchemy"
+	// EngineCSharp represents SQL extracted from EF Core raw SQL execution in C# files.
+	EngineCSharp Engine = "csharp"
 )
 
 // SQLStatement represents a SQL statement extracted from a source file.
@@ -36,7 +38,7 @@ type SQLStatement struct {
 	Column    int      // 1-based column where the statement starts.
 	EndLine   int      // 1-based line number where the statement ends.
 	EndColumn int      // 1-based column where the statement ends.
-	Engine    Engine   // Statement source engine (sql/go/goqu/sqlalchemy).
+	Engine    Engine   // Statement source engine (sql/go/goqu/sqlalchemy/csharp).
 	Disabled  []string // Rule IDs disabled via inline directives.
 }
 

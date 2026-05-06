@@ -86,6 +86,7 @@ func TestSyntheticOriginLabel(t *testing.T) {
 		{source: "", want: ""},
 		{source: "sqlalchemy-ast", want: "SQLAlchemy query builder"},
 		{source: "goqu-ast", want: "goqu query builder"},
+		{source: "csharp-efcore", want: "C# EF Core query builder"},
 		{source: "custom-ast", want: "synthetic query builder"},
 	}
 

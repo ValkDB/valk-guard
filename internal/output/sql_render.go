@@ -124,6 +124,8 @@ func syntheticOriginLabel(source string) string {
 		return "SQLAlchemy query builder"
 	case "goqu-ast":
 		return "goqu query builder"
+	case "csharp-efcore":
+		return "C# EF Core query builder"
 	case "":
 		return ""
 	default:

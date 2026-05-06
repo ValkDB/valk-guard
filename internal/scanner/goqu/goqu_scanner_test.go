@@ -45,7 +45,7 @@ func queries() {
 		t.Fatalf("expected raw goqu.L SQL to be extracted")
 	}
 
-	if !scannertest.HasSQLContaining(stmts, "/* valk-guard:synthetic goqu-ast */ SELECT * FROM users JOIN orders ON 1=1") {
+	if !scannertest.HasSQLContaining(stmts, "/* valk-guard:synthetic goqu-ast */ SELECT * FROM users JOIN orders ON users.id = orders.uid") {
 		t.Fatalf("expected synthetic SQL with JOIN and SELECT * from builder chain, got %+v", stmts)
 	}
 }
@@ -86,7 +86,7 @@ func queries() {
 		}
 	}
 
-	if !scannertest.HasSQLContaining(stmts, "LEFT JOIN orders ON 1=1") {
+	if !scannertest.HasSQLContaining(stmts, "LEFT JOIN orders ON users.id = orders.uid") {
 		t.Fatalf("expected synthetic SQL to preserve join structure, got %+v", stmts)
 	}
 	if !scannertest.HasSQLContaining(stmts, "email LIKE '%@gmail.com'") {
@@ -217,10 +217,10 @@ func queries() {
 		t.Fatal("expected statements from multi-join chain, got 0")
 	}
 
-	if !scannertest.HasSQLContaining(stmts, "JOIN orders ON 1=1") {
+	if !scannertest.HasSQLContaining(stmts, "JOIN orders ON users.id = orders.uid") {
 		t.Fatalf("expected first JOIN in synthetic SQL, got %+v", stmts)
 	}
-	if !scannertest.HasSQLContaining(stmts, "JOIN items ON 1=1") {
+	if !scannertest.HasSQLContaining(stmts, "JOIN items ON orders.id = items.oid") {
 		t.Fatalf("expected second JOIN in synthetic SQL, got %+v", stmts)
 	}
 }
@@ -255,7 +255,7 @@ func queries() {
 	if len(stmts) != 1 {
 		t.Fatalf("expected 1 synthetic statement for ToSQL() chain, got %d: %+v", len(stmts), stmts)
 	}
-	if !scannertest.HasSQLContaining(stmts, "LEFT JOIN orders ON 1=1") {
+	if !scannertest.HasSQLContaining(stmts, "LEFT JOIN orders ON orders.user_id = users.id") {
 		t.Fatalf("expected LEFT JOIN in synthetic SQL, got %+v", stmts)
 	}
 }
@@ -310,5 +310,56 @@ func TestGoquScannerEmptyDir(t *testing.T) {
 
 	if len(stmts) != 0 {
 		t.Fatalf("expected 0 statements, got %d", len(stmts))
+	}
+}
+
+func TestGoquScannerParityFeatureClauses(t *testing.T) {
+	src := `package example
+
+import goqu "github.com/doug-martin/goqu/v9"
+
+func queries(ids []int, minTotal int) {
+	goqu.From("users").
+		Distinct().
+		Where(goqu.C("id").In([]int{1, 2, 3}), goqu.Or(goqu.C("role").Eq("admin"), goqu.C("role").Eq("owner"))).
+		Order(goqu.I("email").Desc(), goqu.I("id").Asc()).
+		Limit(10).
+		Offset(20).
+		Select("id", "email")
+
+	goqu.From("users").Where(goqu.C("id").NotIn([]int{1, 2, 3})).Select("id").Limit(1)
+
+	goqu.From("orders").
+		Select(goqu.SUM(goqu.C("total"))).
+		GroupBy("user_id").
+		Having(goqu.C("total").Gt(minTotal)).
+		Limit(10)
+}
+`
+
+	tmpDir := t.TempDir()
+	goFile := filepath.Join(tmpDir, "parity.go")
+	if err := os.WriteFile(goFile, []byte(src), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	for _, want := range []string{
+		"SELECT DISTINCT id, email FROM users",
+		"id IN ($1, $2, $3)",
+		"(role = 'admin' OR role = 'owner')",
+		"ORDER BY email DESC, id ASC LIMIT 10 OFFSET 20",
+		"id NOT IN ($1, $2, $3)",
+		"SELECT SUM(total) FROM orders",
+		"GROUP BY user_id HAVING total > $1",
+	} {
+		if !scannertest.HasSQLContaining(stmts, want) {
+			t.Fatalf("expected synthetic SQL containing %q, got %+v", want, stmts)
+		}
 	}
 }

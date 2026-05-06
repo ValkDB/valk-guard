@@ -10,6 +10,7 @@ import (
 
 	"github.com/valkdb/valk-guard/internal/config"
 	"github.com/valkdb/valk-guard/internal/scanner"
+	"github.com/valkdb/valk-guard/internal/scanner/csharp"
 	"github.com/valkdb/valk-guard/internal/scanner/goqu"
 	"github.com/valkdb/valk-guard/internal/scanner/sqlalchemy"
 	"github.com/valkdb/valk-guard/internal/schema"
@@ -92,6 +93,7 @@ func defaultScannerBindings() []scannerBinding {
 		{name: "go", impl: &scanner.GoScanner{}, extensions: []string{".go"}},
 		{name: "goqu", impl: &goqu.Scanner{}, extensions: []string{".go"}},
 		{name: "sqlalchemy", impl: &sqlalchemy.Scanner{}, extensions: []string{".py"}},
+		{name: "csharp", impl: &csharp.Scanner{}, extensions: []string{".cs"}},
 	}
 }
 
@@ -114,6 +116,47 @@ func defaultModelBindings(cfg *config.Config) []modelBinding {
 			queryEngines:  []scanner.Engine{scanner.EngineSQLAlchemy},
 		},
 	}
+}
+
+// filterScannerBindings removes scanners disabled by the top-level sources
+// config before file discovery decides which extensions are needed.
+func filterScannerBindings(cfg *config.Config, bindings []scannerBinding) []scannerBinding {
+	filtered := make([]scannerBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if !cfg.IsSourceEnabled(scanner.Engine(binding.name)) {
+			continue
+		}
+		filtered = append(filtered, binding)
+	}
+	return filtered
+}
+
+// filterModelBindings removes model extractors whose related query/config
+// engines are all disabled by the top-level sources config.
+func filterModelBindings(cfg *config.Config, bindings []modelBinding) []modelBinding {
+	filtered := make([]modelBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if modelBindingEnabled(cfg, &binding) {
+			filtered = append(filtered, binding)
+		}
+	}
+	return filtered
+}
+
+// modelBindingEnabled reports whether any engine that can use a model binding
+// is enabled in source config.
+func modelBindingEnabled(cfg *config.Config, binding *modelBinding) bool {
+	for _, engine := range binding.configEngines {
+		if cfg.IsSourceEnabled(engine) {
+			return true
+		}
+	}
+	for _, engine := range binding.queryEngines {
+		if cfg.IsSourceEnabled(engine) {
+			return true
+		}
+	}
+	return false
 }
 
 // requiredExtensions returns the set of file extensions needed for all active
