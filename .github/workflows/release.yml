@@ -34,7 +34,7 @@ jobs:
           dotnet-version: '8.0.404'
 
       - name: Cache NuGet packages
-        uses: actions/cache@0637707758659e81f5f0c2bb7b1d276a4737b6e0 # v4.3.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('internal/scanner/csharp/roslynextractor/**/*.csproj') }}
