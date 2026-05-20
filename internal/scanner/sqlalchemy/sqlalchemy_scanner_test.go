@@ -176,7 +176,7 @@ session.query(User).join(Order, Order.user_id == User.id).filter(User.active == 
 	if !scannertest.HasSQLContaining(stmts, `FROM "users"`) {
 		t.Errorf("expected resolved table name 'users' in FROM clause, got %+v", stmts)
 	}
-	if !scannertest.HasSQLContaining(stmts, `JOIN "orders" ON 1=1`) {
+	if !scannertest.HasSQLContaining(stmts, `JOIN "orders" ON "orders"."user_id" = "users"."id"`) {
 		t.Errorf("expected resolved table name 'orders' in JOIN clause, got %+v", stmts)
 	}
 }
@@ -292,7 +292,7 @@ def run(session: Session):
 	if len(stmts) == 0 {
 		t.Fatal("expected synthetic SQL from imported SQLAlchemy models, got 0 statements")
 	}
-	if !scannertest.HasSQLContaining(stmts, `FROM "users" LEFT JOIN "orders" ON 1=1`) {
+	if !scannertest.HasSQLContaining(stmts, `FROM "users" LEFT JOIN "orders" ON "orders"."user_id" = "users"."id"`) {
 		t.Fatalf("expected imported __tablename__ values in JOIN SQL, got %+v", stmts)
 	}
 	if !scannertest.HasSQLContaining(stmts, `"orders"."status"`) {
@@ -318,5 +318,39 @@ def run(session)
 	}
 	if !strings.Contains(err.Error(), "python script execution failed") {
 		t.Fatalf("expected extractor failure error, got %v", err)
+	}
+}
+
+func TestSQLAlchemyScannerParityFeatureClauses(t *testing.T) {
+	tmpDir := t.TempDir()
+	pyFile := filepath.Join(tmpDir, "parity.py")
+
+	content := `from sqlalchemy import func
+
+def run(session, User, Address, min_count):
+    session.query(User.id, func.count(Address.id)).distinct().join(Address, Address.user_id == User.id).filter(User.id.in_([1, 2, 3])).group_by(User.id).having(func.count(Address.id) > min_count).order_by(User.email.desc(), User.id).limit(10).offset(20).all()
+    session.query(User.id).filter(User.id.notin_([1, 2, 3])).limit(1).all()
+`
+	if err := os.WriteFile(pyFile, []byte(content), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	s := &Scanner{}
+	stmts, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
+	if err != nil {
+		t.Fatalf("scan error: %v", err)
+	}
+
+	for _, want := range []string{
+		`SELECT DISTINCT "User"."id", COUNT("Address"."id") FROM "User"`,
+		`JOIN "Address" ON "Address"."user_id" = "User"."id"`,
+		`"User"."id" IN ($1, $2, $3)`,
+		`GROUP BY "User"."id" HAVING COUNT("Address"."id") > $4`,
+		`ORDER BY "User"."email" DESC, "User"."id" ASC LIMIT 10 OFFSET 20`,
+		`"User"."id" NOT IN ($1, $2, $3)`,
+	} {
+		if !scannertest.HasSQLContaining(stmts, want) {
+			t.Fatalf("expected synthetic SQL containing %q, got %+v", want, stmts)
+		}
 	}
 }

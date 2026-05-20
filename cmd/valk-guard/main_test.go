@@ -91,7 +91,7 @@ func TestRunScanNoScannableFilesFeedback(t *testing.T) {
 	if !strings.Contains(stdout.String(), "(no scannable files found)") {
 		t.Fatalf("expected no scannable files message, got %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "no .sql, .go, or .py files found in scan paths") {
+	if !strings.Contains(stderr.String(), "no .sql, .go, .py, or .cs files found in scan paths") {
 		t.Fatalf("expected warning about missing scannable files, got %q", stderr.String())
 	}
 }

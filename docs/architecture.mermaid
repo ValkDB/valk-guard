@@ -2,13 +2,21 @@ graph TD
     subgraph "CLI"
         CLI_CMD[valk-guard scan] --> CFG[Load Config]
         CFG --> BIND[Load Source Bindings]
+        CFG --> SRCFILTER[Apply sources enablement]
+        BIND --> SRCFILTER
     end
 
     subgraph "Discovery and Extraction"
-        BIND --> DISCOVER[Discover Files by Bound Extensions]
-        DISCOVER --> SCANNERS[Run Bound Scanners]
-        DISCOVER --> EXTRACTORS[Run Bound Model Extractors]
-        SCANNERS --> STMTS[SQLStatement Stream]
+        SRCFILTER --> DISCOVER[Discover Files by Enabled Extensions]
+        DISCOVER --> SCANNERS[Run Enabled Scanners]
+        DISCOVER --> EXTRACTORS[Run Enabled Model Extractors]
+        SCANNERS --> RAW[Raw SQL extraction]
+        SCANNERS --> SYNTH[Synthetic SQL generation]
+        SCANNERS --> ROSLYN[C# Roslyn AST extractor when EF Core .cs candidates exist]
+        ROSLYN --> RAW
+        ROSLYN --> SYNTH
+        RAW --> STMTS[SQLStatement Stream]
+        SYNTH --> STMTS
         STMTS --> META[Attach file line engine and disable directives]
     end
 
@@ -43,4 +51,5 @@ graph TD
         REPORT --> TERM[Terminal]
         REPORT --> JSON[JSON]
         REPORT --> SARIF[SARIF 2 1 0]
+        REPORT --> RDJSONL[rdjsonl]
     end

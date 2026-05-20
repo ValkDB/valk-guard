@@ -42,6 +42,7 @@ var goquBuilderMethods = map[string]struct{}{
 	"LeftJoin":      {},
 	"RightJoin":     {},
 	"FullJoin":      {},
+	"CrossJoin":     {},
 	"Update":        {},
 	"Delete":        {},
 	"Set":           {},
@@ -270,9 +271,15 @@ type chainParts struct {
 	hasSelect  bool
 	joins      []joinPart
 	predicates []string
+	having     []string
+	orderBy    []string
+	groupBy    []string
 	hasWhere   bool
 	hasLimit   bool
 	limitVal   string
+	hasOffset  bool
+	offsetVal  string
+	distinct   bool
 	forUpdate  bool
 }
 
@@ -280,12 +287,14 @@ type chainParts struct {
 type joinPart struct {
 	joinType string
 	table    string
+	on       string
 }
 
 // collectChainParts walks the method chain and populates a chainParts struct.
 func collectChainParts(chain []methodCall, alias string) chainParts {
 	cp := chainParts{
-		limitVal: "1",
+		limitVal:  "1",
+		offsetVal: "1",
 	}
 
 	if len(chain) == 0 || len(chain[0].Args) == 0 {
@@ -293,6 +302,7 @@ func collectChainParts(chain []methodCall, alias string) chainParts {
 	}
 	cp.table = tableNameFromExpr(chain[0].Args[0], alias, "synthetic_table")
 
+	nextBind := 1
 	for _, link := range chain[1:] {
 		switch link.Name {
 		case "Select":
@@ -300,7 +310,15 @@ func collectChainParts(chain []methodCall, alias string) chainParts {
 			if cols := extractSelectColumns(link.Args, alias); len(cols) > 0 {
 				cp.columns = cols
 			}
-		case "Join", "InnerJoin", "LeftJoin", "RightJoin", "FullJoin":
+		case "Distinct":
+			cp.distinct = true
+		case "Order":
+			cp.orderBy = append(cp.orderBy, extractOrderBy(link.Args, alias)...)
+		case "GroupBy":
+			cp.groupBy = append(cp.groupBy, extractColumns(link.Args, alias)...)
+		case "Having":
+			cp.having = append(cp.having, extractPredicates(link.Args, alias, &nextBind)...)
+		case "Join", "InnerJoin", "LeftJoin", "RightJoin", "FullJoin", "CrossJoin":
 			jt := "JOIN"
 			switch link.Name {
 			case "LeftJoin":
@@ -309,15 +327,21 @@ func collectChainParts(chain []methodCall, alias string) chainParts {
 				jt = "RIGHT JOIN"
 			case "FullJoin":
 				jt = "FULL JOIN"
+			case "CrossJoin":
+				jt = "CROSS JOIN"
 			}
 			table := "synthetic_join"
 			if len(link.Args) > 0 {
 				table = tableNameFromExpr(link.Args[0], alias, "synthetic_join")
 			}
-			cp.joins = append(cp.joins, joinPart{joinType: jt, table: table})
+			on := "1=1"
+			if len(link.Args) > 1 {
+				on = joinOnFromExpr(link.Args[1], alias)
+			}
+			cp.joins = append(cp.joins, joinPart{joinType: jt, table: table, on: on})
 		case "Where":
 			cp.hasWhere = true
-			conds := extractPredicates(link.Args, alias)
+			conds := extractPredicates(link.Args, alias, &nextBind)
 			if len(conds) == 0 {
 				conds = []string{"1=1"}
 			}
@@ -325,6 +349,9 @@ func collectChainParts(chain []methodCall, alias string) chainParts {
 		case "Limit":
 			cp.hasLimit = true
 			cp.limitVal = limitFromArgs(link.Args)
+		case "Offset":
+			cp.hasOffset = true
+			cp.offsetVal = limitFromArgs(link.Args)
 		case "ForUpdate":
 			cp.forUpdate = true
 		}
@@ -344,15 +371,35 @@ func renderSelect(cp *chainParts) string {
 		columns = []string{"*"}
 	}
 
-	sql := fmt.Sprintf("SELECT %s FROM %s", strings.Join(columns, ", "), cp.table)
+	distinct := ""
+	if cp.distinct {
+		distinct = "DISTINCT "
+	}
+	sql := fmt.Sprintf("SELECT %s%s FROM %s", distinct, strings.Join(columns, ", "), cp.table)
 	for _, j := range cp.joins {
-		sql += fmt.Sprintf(" %s %s ON 1=1", j.joinType, j.table)
+		if j.joinType == "CROSS JOIN" {
+			sql += fmt.Sprintf(" %s %s", j.joinType, j.table)
+		} else {
+			sql += fmt.Sprintf(" %s %s ON %s", j.joinType, j.table, j.on)
+		}
 	}
 	if cp.hasWhere && len(cp.predicates) > 0 {
 		sql += " WHERE " + strings.Join(cp.predicates, " AND ")
 	}
+	if len(cp.groupBy) > 0 {
+		sql += " GROUP BY " + strings.Join(cp.groupBy, ", ")
+	}
+	if len(cp.having) > 0 {
+		sql += " HAVING " + strings.Join(cp.having, " AND ")
+	}
+	if len(cp.orderBy) > 0 {
+		sql += " ORDER BY " + strings.Join(cp.orderBy, ", ")
+	}
 	if cp.hasLimit {
 		sql += " LIMIT " + cp.limitVal
+	}
+	if cp.hasOffset {
+		sql += " OFFSET " + cp.offsetVal
 	}
 	if cp.forUpdate {
 		sql += " FOR UPDATE"
@@ -406,7 +453,7 @@ func renderDelete(cp *chainParts) string {
 func extractSelectColumns(args []ast.Expr, alias string) []string {
 	columns := make([]string, 0, len(args))
 	for _, arg := range args {
-		col := columnNameFromExpr(arg, alias, "")
+		col := selectExprFromExpr(arg, alias)
 		if col == "" {
 			continue
 		}
@@ -418,13 +465,62 @@ func extractSelectColumns(args []ast.Expr, alias string) []string {
 	return columns
 }
 
+// extractColumns converts AST expressions into SQL column identifiers.
+func extractColumns(args []ast.Expr, alias string) []string {
+	columns := make([]string, 0, len(args))
+	for _, arg := range args {
+		if col := columnNameFromExpr(arg, alias, ""); col != "" {
+			columns = append(columns, col)
+		}
+	}
+	return columns
+}
+
+// extractOrderBy converts goqu order expressions into ORDER BY fragments.
+func extractOrderBy(args []ast.Expr, alias string) []string {
+	orders := make([]string, 0, len(args))
+	for _, arg := range args {
+		col := columnNameFromExpr(arg, alias, "")
+		if col == "" {
+			continue
+		}
+		direction := "ASC"
+		if call, ok := arg.(*ast.CallExpr); ok {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Desc" {
+				direction = "DESC"
+			}
+		}
+		orders = append(orders, col+" "+direction)
+	}
+	return orders
+}
+
+// selectExprFromExpr resolves projections, including goqu aggregate functions.
+func selectExprFromExpr(expr ast.Expr, alias string) string {
+	if call, ok := expr.(*ast.CallExpr); ok {
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+			if x, ok := sel.X.(*ast.Ident); ok && x.Name == alias {
+				switch strings.ToUpper(sel.Sel.Name) {
+				case "SUM", "MIN", "MAX", "AVG", "COUNT":
+					col := "*"
+					if len(call.Args) > 0 {
+						col = columnNameFromExpr(call.Args[0], alias, "synthetic_col")
+					}
+					return strings.ToUpper(sel.Sel.Name) + "(" + col + ")"
+				}
+			}
+		}
+	}
+	return columnNameFromExpr(expr, alias, "")
+}
+
 // extractPredicates converts a slice of AST expressions from a goqu Where()
 // call into SQL predicate strings, skipping any arguments that cannot be
 // resolved to a predicate.
-func extractPredicates(args []ast.Expr, alias string) []string {
+func extractPredicates(args []ast.Expr, alias string, nextBind *int) []string {
 	var predicates []string
 	for _, arg := range args {
-		p := predicateFromExpr(arg, alias)
+		p := predicateFromExpr(arg, alias, nextBind)
 		if p != "" {
 			predicates = append(predicates, p)
 		}
@@ -436,7 +532,7 @@ func extractPredicates(args []ast.Expr, alias string) []string {
 // predicate (such as goqu.C("col").Eq(val) or a goqu.Ex{} composite literal)
 // into a SQL condition string. Returns "" if the expression cannot be
 // recognized as a predicate.
-func predicateFromExpr(expr ast.Expr, alias string) string {
+func predicateFromExpr(expr ast.Expr, alias string, nextBind *int) string {
 	switch e := expr.(type) {
 	case *ast.CallExpr:
 		sel, ok := e.Fun.(*ast.SelectorExpr)
@@ -444,24 +540,40 @@ func predicateFromExpr(expr ast.Expr, alias string) string {
 			return ""
 		}
 
+		if x, ok := sel.X.(*ast.Ident); ok && x.Name == alias && (sel.Sel.Name == "Or" || sel.Sel.Name == "And") {
+			parts := extractPredicates(e.Args, alias, nextBind)
+			if len(parts) == 0 {
+				return ""
+			}
+			joiner := " AND "
+			if sel.Sel.Name == "Or" {
+				joiner = " OR "
+			}
+			return "(" + strings.Join(parts, joiner) + ")"
+		}
+
 		col := columnNameFromExpr(sel.X, alias, "synthetic_col")
 		switch sel.Sel.Name {
 		case "Like":
-			return fmt.Sprintf("%s LIKE %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s LIKE %s", col, sqlValue(firstArg(e.Args), nextBind))
 		case "ILike":
-			return fmt.Sprintf("%s ILIKE %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s ILIKE %s", col, sqlValue(firstArg(e.Args), nextBind))
 		case "Eq":
-			return fmt.Sprintf("%s = %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s = %s", col, sqlValue(firstArg(e.Args), nextBind))
 		case "Neq":
-			return fmt.Sprintf("%s <> %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s <> %s", col, sqlValue(firstArg(e.Args), nextBind))
 		case "Gt":
-			return fmt.Sprintf("%s > %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s > %s", col, sqlValue(firstArg(e.Args), nextBind))
 		case "Gte":
-			return fmt.Sprintf("%s >= %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s >= %s", col, sqlValue(firstArg(e.Args), nextBind))
 		case "Lt":
-			return fmt.Sprintf("%s < %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s < %s", col, sqlValue(firstArg(e.Args), nextBind))
 		case "Lte":
-			return fmt.Sprintf("%s <= %s", col, sqlValue(firstArg(e.Args)))
+			return fmt.Sprintf("%s <= %s", col, sqlValue(firstArg(e.Args), nextBind))
+		case "In":
+			return fmt.Sprintf("%s IN (%s)", col, bindListFromExpr(firstArg(e.Args), nextBind))
+		case "NotIn":
+			return fmt.Sprintf("%s NOT IN (%s)", col, bindListFromExpr(firstArg(e.Args), nextBind))
 		}
 
 	case *ast.CompositeLit:
@@ -473,7 +585,7 @@ func predicateFromExpr(expr ast.Expr, alias string) string {
 			}
 			key := literalOrIdent(kv.Key)
 			key = safeIdent(key, "synthetic_col")
-			predicates = append(predicates, fmt.Sprintf("%s = %s", key, sqlValue(kv.Value)))
+			predicates = append(predicates, fmt.Sprintf("%s = %s", key, sqlValue(kv.Value, nextBind)))
 		}
 		if len(predicates) > 0 {
 			return strings.Join(predicates, " AND ")
@@ -481,6 +593,52 @@ func predicateFromExpr(expr ast.Expr, alias string) string {
 	}
 
 	return ""
+}
+
+// joinOnFromExpr converts goqu.On(...) expressions into a SQL ON predicate.
+func joinOnFromExpr(expr ast.Expr, alias string) string {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return "1=1"
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "1=1"
+	}
+	if x, ok := sel.X.(*ast.Ident); !ok || x.Name != alias || sel.Sel.Name != "On" {
+		return "1=1"
+	}
+	var parts []string
+	for _, arg := range call.Args {
+		if lit, ok := arg.(*ast.CompositeLit); ok {
+			for _, elt := range lit.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				left := safeIdent(literalOrIdent(kv.Key), "synthetic_col")
+				right := columnNameFromExpr(kv.Value, alias, "synthetic_col")
+				parts = append(parts, left+" = "+right)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return "1=1"
+	}
+	return strings.Join(parts, " AND ")
+}
+
+// bindListFromExpr renders a PostgreSQL-style bind list for IN predicates.
+func bindListFromExpr(expr ast.Expr, nextBind *int) string {
+	arity := 3
+	if lit, ok := expr.(*ast.CompositeLit); ok && len(lit.Elts) > 0 {
+		arity = len(lit.Elts)
+	}
+	values := make([]string, 0, arity)
+	for i := 0; i < arity; i++ {
+		values = append(values, sqlValue(&ast.Ident{Name: "synthetic"}, nextBind))
+	}
+	return strings.Join(values, ", ")
 }
 
 // tableNameFromExpr resolves an AST expression to a safe SQL table name
@@ -582,8 +740,8 @@ func literalOrIdent(expr ast.Expr) string {
 // sqlValue converts an AST expression to a SQL value literal suitable for
 // embedding in a synthetic query. String literals are single-quoted, numeric
 // literals are emitted as-is, boolean/nil identifiers are mapped to SQL
-// keywords, and all other expressions are replaced with 'synthetic_value'.
-func sqlValue(expr ast.Expr) string {
+// keywords, and all other expressions are replaced with numbered binds.
+func sqlValue(expr ast.Expr, nextBind *int) string {
 	if expr == nil {
 		return "NULL"
 	}
@@ -615,7 +773,9 @@ func sqlValue(expr ast.Expr) string {
 		}
 	}
 
-	return "'synthetic_value'"
+	placeholder := fmt.Sprintf("$%d", *nextBind)
+	*nextBind++
+	return placeholder
 }
 
 // limitFromArgs extracts the LIMIT value from the AST arguments of a goqu

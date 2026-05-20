@@ -92,8 +92,10 @@ JSON object per line with:
   - a human-readable origin hint for synthetic builder-derived SQL
   - a compact query preview
 
-Synthetic scanner prefixes such as `/* valk-guard:synthetic sqlalchemy-ast */`
-are stripped automatically from the user-facing message.
+Synthetic scanner prefixes such as `/* valk-guard:synthetic goqu-ast */`,
+`/* valk-guard:synthetic sqlalchemy-ast */`, and
+`/* valk-guard:synthetic csharp-efcore */` are stripped automatically from the
+user-facing message.
 
 Example:
 

@@ -128,8 +128,8 @@ func Run(ctx context.Context, paths []string, cfg *config.Config, logger *slog.L
 // statement, applies enabled rules, and returns the deduplicated, sorted
 // findings.
 func collectAndAnalyze(ctx context.Context, paths []string, cfg *config.Config, reg *rules.Registry, logger *slog.Logger) ([]rules.Finding, bool, error) {
-	scannerBindings := defaultScannerBindings()
-	modelBindings := defaultModelBindings(cfg)
+	scannerBindings := filterScannerBindings(cfg, defaultScannerBindings())
+	modelBindings := filterModelBindings(cfg, defaultModelBindings(cfg))
 
 	inputs, err := collectScannerInputs(ctx, paths, cfg, requiredExtensions(scannerBindings, modelBindings))
 	if err != nil {

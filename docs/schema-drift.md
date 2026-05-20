@@ -141,12 +141,12 @@ Column types are extracted from `Column()` arguments for type-mismatch detection
 
 ## Query-Schema Support Matrix
 
-| Rule  | sql | go | goqu | sqlalchemy | Notes |
-|-------|-----|----|------|------------|-------|
-| VG105 | yes | yes | yes | yes | Validates projected columns (`SELECT a, b`) against migration schema; for `go/goqu` and `sqlalchemy`, also validates against model-derived columns when present. |
-| VG106 | yes | yes | yes | yes | Validates columns in `WHERE`, `JOIN ... ON ...` (including `INNER JOIN`), `GROUP BY`, and `ORDER BY` against migration schema; for `go/goqu` and `sqlalchemy`, also validates against model-derived columns when present. |
-| VG107 | yes | yes | yes | yes | Validates referenced tables in `FROM`/`JOIN` against schema sources. |
-| VG108 | yes | yes | yes | yes | Validates that unqualified columns are not ambiguous across joined tables. |
+| Rule  | sql | go | goqu | sqlalchemy | csharp | Notes |
+|-------|-----|----|------|------------|--------|-------|
+| VG105 | yes | yes | yes | yes | yes | Validates projected columns (`SELECT a, b`) against migration schema; for `go/goqu` and `sqlalchemy`, also validates against model-derived columns when present. |
+| VG106 | yes | yes | yes | yes | yes | Validates columns in `WHERE`, `JOIN ... ON ...` (including `INNER JOIN`), `GROUP BY`, and `ORDER BY` against migration schema; for `go/goqu` and `sqlalchemy`, also validates against model-derived columns when present. |
+| VG107 | yes | yes | yes | yes | yes | Validates referenced tables in `FROM`/`JOIN` against schema sources. |
+| VG108 | yes | yes | yes | yes | yes | Validates that unqualified columns are not ambiguous across joined tables. |
 
 ## Configuration
 
@@ -169,23 +169,23 @@ rules:
     engines: [sqlalchemy] # explicit table mappings only
   VG105:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG106:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG107:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG108:
     severity: warning
-    engines: [sql, go, goqu, sqlalchemy]
+    engines: [sql, go, goqu, sqlalchemy, csharp]
 ```
 
 Schema rules honor `engines` filtering by source:
 
 - `go` for Go `db` tag models
 - `sqlalchemy` for Python SQLAlchemy models
-- `sql`, `go`, `goqu`, `sqlalchemy` for query-schema rules (`VG105`-`VG108`)
+- `sql`, `go`, `goqu`, `sqlalchemy`, `csharp` for query-schema rules (`VG105`-`VG108`)
 
 ## Type Compatibility (VG103)
 

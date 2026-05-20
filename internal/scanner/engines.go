@@ -11,6 +11,7 @@ var knownEngines = [...]Engine{
 	EngineGo,
 	EngineGoqu,
 	EngineSQLAlchemy,
+	EngineCSharp,
 }
 
 // KnownEngines returns a copy of all registered built-in engine identifiers.

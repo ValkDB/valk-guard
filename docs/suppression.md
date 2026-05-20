@@ -34,14 +34,32 @@ rules:
   VG001:
     enabled: true
     severity: warning
-    engines: [all] # all | sql | go | goqu | sqlalchemy
+    engines: [all] # all | sql | go | goqu | sqlalchemy | csharp
   VG005:
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG007:
     enabled: false
 ```
 
-## 3) Inline Suppression
+## 3) Source Scanner Tuning
+
+Use top-level `sources` to disable whole scanner/model-extractor integrations.
+Missing entries default to enabled.
+
+```yaml
+sources:
+  sql: true
+  go: true
+  goqu: true
+  sqlalchemy: false # aliases: python, py
+  csharp: false     # aliases: cs, c#, dotnet
+```
+
+This is different from `rules.<id>.engines`: `sources` prevents file discovery
+and external runtime invocation, while rule engine filters only control which
+findings can be emitted after a statement is scanned.
+
+## 4) Inline Suppression
 
 Use inline directives for one-off cases near the SQL source.
 
@@ -68,7 +86,7 @@ Python:
 session.execute(text("SELECT * FROM users"))
 ```
 
-## 4) Schema-Aware Rule Config
+## 5) Schema-Aware Rule Config
 
 Schema-aware rules (`VG101`-`VG111`) use the same per-rule config:
 
@@ -85,16 +103,16 @@ rules:
     engines: [sqlalchemy] # explicit table mappings only
   VG105:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG106:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG107:
     severity: error
-    engines: [goqu, sqlalchemy]
+    engines: [goqu, sqlalchemy, csharp]
   VG108:
     severity: warning
-    engines: [sql, go, goqu, sqlalchemy]
+    engines: [sql, go, goqu, sqlalchemy, csharp]
   VG109:
     severity: warning
   VG110:
@@ -114,7 +132,7 @@ Schema-aware rules honor per-rule `engines` filtering:
 
 - `go` applies to models extracted from Go `db` tags.
 - `sqlalchemy` applies to models extracted from Python SQLAlchemy code.
-- `sql`, `go`, `goqu`, and `sqlalchemy` apply to query-schema statement sources.
+- `sql`, `go`, `goqu`, `sqlalchemy`, and `csharp` apply to query-schema statement sources.
 
 ## Goqu SELECT * Noise
 
@@ -125,7 +143,7 @@ To suppress VG001 for Goqu while keeping it active for other engines:
 ```yaml
 rules:
   VG001:
-    engines: [sql, go, sqlalchemy]  # exclude goqu
+    engines: [sql, go, sqlalchemy, csharp]  # exclude goqu
 ```
 
 ## Current Limitation

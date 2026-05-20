@@ -2,6 +2,7 @@
 
 - [All 19 rules — full reference](rules.md)
 - [Schema-drift detection](schema-drift.md)
+- [Source configuration](source-config.md)
 - [Suppression and noise control](suppression.md)
 - [Output formats (terminal, JSON, rdjsonl, SARIF)](output-formats.md)
 - [CI reviewer mode](ci-reviewer-mode.md)

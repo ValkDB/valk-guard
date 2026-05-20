@@ -80,7 +80,7 @@ func newRootCmd(stdout, stderr io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "valk-guard",
 		Short:         "Static SQL performance linter for CI/CD",
-		Long:          "Valk Guard scans SQL across SQL, Go, Goqu, and SQLAlchemy sources and reports performance, safety, and schema-aware findings.",
+		Long:          "Valk Guard scans SQL across SQL, Go, Goqu, SQLAlchemy, and C# (EF Core) sources and reports performance, safety, and schema-aware findings.",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Version:       version,
@@ -182,7 +182,7 @@ func runScan(opts scanOptions, args []string, stdout, stderr io.Writer) (int, er
 		return exitError, err
 	}
 	if !result.HadScannableInputs {
-		logger.Warn("no .sql, .go, or .py files found in scan paths")
+		logger.Warn("no .sql, .go, .py, or .cs files found in scan paths")
 	}
 
 	out := stdout

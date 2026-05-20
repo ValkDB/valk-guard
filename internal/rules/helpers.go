@@ -142,7 +142,7 @@ func hasLimitClause(parsed *postgresparser.ParsedQuery) bool {
 
 // queryClauses returns predicate-bearing clause text used for pattern checks.
 func queryClauses(parsed *postgresparser.ParsedQuery) []string {
-	var clauses []string
+	clauses := make([]string, 0, len(parsed.Where)+len(parsed.Having)+len(parsed.JoinConditions))
 	clauses = append(clauses, parsed.Where...)
 	clauses = append(clauses, parsed.Having...)
 	clauses = append(clauses, parsed.JoinConditions...)

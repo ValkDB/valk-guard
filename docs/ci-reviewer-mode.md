@@ -91,6 +91,7 @@ jobs:
             **/*.sql
             **/*.go
             **/*.py
+            **/*.cs
 
       - uses: reviewdog/action-setup@v1
         if: steps.changed.outputs.any_changed == 'true'
@@ -160,7 +161,7 @@ jq -cr '((if type == "array" then . else .findings end) // [])[]'
 ```
 ## Changed-Files-Only Pattern (Recommended for PRs)
 
-Run Valk Guard on PR-diff files (`.sql`, `.go`, `.py`) instead of full-repo scans to reduce noise and runtime.
+Run Valk Guard on PR-diff files (`.sql`, `.go`, `.py`, `.cs`) instead of full-repo scans to reduce noise and runtime.
 
 ## Resolution Model
 
