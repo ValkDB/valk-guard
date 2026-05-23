@@ -216,26 +216,43 @@ func (s *Scanner) runRoslynExtractor(parent context.Context, files []string) ([]
 
 // runRoslynProject executes an explicit extractor project with dotnet run.
 func runRoslynProject(ctx context.Context, dotnet, projectPath string, files []string, timeout time.Duration) ([]csResult, error) {
-	args := make([]string, 0, 6+len(files))
-	args = append(args, "run", "--project", projectPath, "--verbosity", "quiet", "--")
+	outputPath, cleanup, err := newExtractorOutputFile(files)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	args := make([]string, 0, 7+len(files))
+	args = append(args, "run", "--project", projectPath, "--verbosity", "quiet", "--", "--output="+pathForDotnet(dotnet, outputPath))
 	args = append(args, files...)
 	//nolint:gosec // dotnet is a resolved SDK executable and args point at scanner-selected source files.
 	//nolint:gosec // dotnet is a resolved SDK executable used to publish scanner-owned embedded code.
 	//nolint:gosec // dotnet is a resolved SDK executable used to publish scanner-owned embedded code.
 	cmd := exec.CommandContext(ctx, dotnet, args...)
 	cmd.Env = dotnetEnv()
-	return decodeRoslynCommand(cmd, ctx, timeout)
+	return runRoslynCommand(cmd, ctx, timeout, outputPath)
 }
 
 // runRoslynBinary executes the cached published extractor binary.
 func runRoslynBinary(ctx context.Context, executablePath string, files []string, timeout time.Duration) ([]csResult, error) {
+	outputPath, cleanup, err := newExtractorOutputFile(files)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	binArgs := make([]string, 0, 1+len(files))
+	binArgs = append(binArgs, "--output="+outputPath)
+	binArgs = append(binArgs, files...)
 	//nolint:gosec // executablePath is the scanner-owned cached extractor binary.
-	cmd := exec.CommandContext(ctx, executablePath, files...)
-	return decodeRoslynCommand(cmd, ctx, timeout)
+	cmd := exec.CommandContext(ctx, executablePath, binArgs...)
+	return runRoslynCommand(cmd, ctx, timeout, outputPath)
 }
 
-// decodeRoslynCommand runs cmd and decodes the extractor JSON result stream.
-func decodeRoslynCommand(cmd *exec.Cmd, ctx context.Context, timeout time.Duration) ([]csResult, error) {
+// runRoslynCommand runs cmd and decodes the extractor JSON result file. The
+// extractor writes its JSON payload to outputPath so that any stray
+// build/restore lines on stdout cannot corrupt the result.
+func runRoslynCommand(cmd *exec.Cmd, ctx context.Context, timeout time.Duration, outputPath string) ([]csResult, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -248,7 +265,11 @@ func decodeRoslynCommand(cmd *exec.Cmd, ctx context.Context, timeout time.Durati
 		return nil, fmt.Errorf("csharp Roslyn extractor failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
-	payload := trimToJSONArray(stdout.Bytes())
+	//nolint:gosec // outputPath is created by newExtractorOutputFile in a private temp dir.
+	payload, err := os.ReadFile(outputPath)
+	if err != nil {
+		return nil, fmt.Errorf("read C# Roslyn extractor output: %w", err)
+	}
 	var results []csResult
 	if err := json.Unmarshal(payload, &results); err != nil {
 		return nil, fmt.Errorf("decode C# Roslyn extractor output: %w", err)
@@ -256,15 +277,23 @@ func decodeRoslynCommand(cmd *exec.Cmd, ctx context.Context, timeout time.Durati
 	return results, nil
 }
 
-// trimToJSONArray returns the slice starting at the first '[' byte, or the
-// original input when no opening bracket is found. Defends against stray
-// build/restore lines that some dotnet SDKs print to stdout ahead of the
-// extractor's JSON payload, which would otherwise break json.Unmarshal.
-func trimToJSONArray(b []byte) []byte {
-	if i := bytes.IndexByte(b, '['); i > 0 {
-		return b[i:]
+// newExtractorOutputFile creates a unique empty file to receive the JSON
+// payload from the extractor, plus a cleanup function the caller should defer.
+// The file is placed next to the first input file so it lives in a directory
+// the extractor can already access. This matters under WSL + Windows dotnet,
+// where /tmp on the Linux side is not visible to the Windows process.
+func newExtractorOutputFile(files []string) (string, func(), error) {
+	dir := ""
+	if len(files) > 0 {
+		dir = filepath.Dir(files[0])
 	}
-	return b
+	f, err := os.CreateTemp(dir, "valk-guard-csharp-*.json")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create C# extractor output file: %w", err)
+	}
+	path := f.Name()
+	_ = f.Close()
+	return path, func() { _ = os.Remove(path) }, nil
 }
 
 // ensureCachedRoslynExtractorPublished publishes a self-contained extractor
