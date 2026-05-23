@@ -30,12 +30,24 @@ internal static class Program
     };
 
     /// <summary>
-    /// Parses all input files and prints JSON extraction results to stdout.
+    /// Parses all input files and writes JSON extraction results.
+    /// When the first argument is <c>--output=PATH</c>, results are written to
+    /// that file; otherwise they are written to stdout. The file form is used
+    /// by the Go scanner so that build/restore noise from <c>dotnet run</c>
+    /// cannot corrupt the JSON payload.
     /// </summary>
     public static int Main(string[] args)
     {
+        string? outputPath = null;
+        IEnumerable<string> inputs = args;
+        if (args.Length > 0 && args[0].StartsWith("--output=", StringComparison.Ordinal))
+        {
+            outputPath = args[0].Substring("--output=".Length);
+            inputs = args.Skip(1);
+        }
+
         var results = new List<SqlResult>();
-        foreach (var file in args)
+        foreach (var file in inputs)
         {
             try
             {
@@ -48,7 +60,15 @@ internal static class Program
             }
         }
 
-        Console.Write(JsonSerializer.Serialize(results));
+        var json = JsonSerializer.Serialize(results);
+        if (outputPath is not null)
+        {
+            File.WriteAllText(outputPath, json);
+        }
+        else
+        {
+            Console.Write(json);
+        }
         return 0;
     }
 

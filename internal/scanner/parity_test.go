@@ -152,8 +152,7 @@ func scanCSharpParity(t *testing.T, src string) []scannercore.SQLStatement {
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	}
 	writeFile(t, filepath.Join(dir, "Query.cs"), src)
-	project := filepath.Join("csharp", "roslynextractor", "RoslynExtractor.csproj")
-	s := &csharpscanner.Scanner{DotnetPath: os.Getenv("VALK_DOTNET_PATH"), ProjectPath: project}
+	s := &csharpscanner.Scanner{DotnetPath: os.Getenv("VALK_DOTNET_PATH")}
 	stmts, err := scannercore.Collect(s.Scan(context.Background(), []string{dir}))
 	if err != nil {
 		t.Fatalf("csharp scan error: %v", err)
