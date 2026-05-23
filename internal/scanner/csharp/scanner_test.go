@@ -636,7 +636,7 @@ class Repo {
 		t.Fatalf("write temp file: %v", err)
 	}
 
-	s := &Scanner{DotnetPath: "missing-dotnet-for-test"}
+	s := &Scanner{DotnetPath: "missing-dotnet-for-test", ProjectPath: testRoslynProjectPath()}
 	_, err := scanner.Collect(s.Scan(context.Background(), []string{tmpDir}))
 	if err == nil {
 		t.Fatal("expected missing dotnet error")
