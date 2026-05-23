@@ -222,8 +222,8 @@ func runRoslynProject(ctx context.Context, dotnet, projectPath string, files []s
 	}
 	defer cleanup()
 
-	args := make([]string, 0, 7+len(files))
-	args = append(args, "run", "--project", projectPath, "--verbosity", "quiet", "--", "--output="+pathForDotnet(dotnet, outputPath))
+	args := make([]string, 0, 6+len(files))
+	args = append(args, "run", "--project", projectPath, "--", "--output="+pathForDotnet(dotnet, outputPath))
 	args = append(args, files...)
 	//nolint:gosec // dotnet is a resolved SDK executable and args point at scanner-selected source files.
 	//nolint:gosec // dotnet is a resolved SDK executable used to publish scanner-owned embedded code.
@@ -282,7 +282,7 @@ func runRoslynCommand(cmd *exec.Cmd, ctx context.Context, timeout time.Duration,
 // The file is placed next to the first input file so it lives in a directory
 // the extractor can already access. This matters under WSL + Windows dotnet,
 // where /tmp on the Linux side is not visible to the Windows process.
-func newExtractorOutputFile(files []string) (string, func(), error) {
+func newExtractorOutputFile(files []string) (path string, cleanup func(), err error) {
 	dir := ""
 	if len(files) > 0 {
 		dir = filepath.Dir(files[0])
@@ -291,7 +291,7 @@ func newExtractorOutputFile(files []string) (string, func(), error) {
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create C# extractor output file: %w", err)
 	}
-	path := f.Name()
+	path = f.Name()
 	_ = f.Close()
 	return path, func() { _ = os.Remove(path) }, nil
 }
