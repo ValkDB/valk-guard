@@ -216,8 +216,8 @@ func (s *Scanner) runRoslynExtractor(parent context.Context, files []string) ([]
 
 // runRoslynProject executes an explicit extractor project with dotnet run.
 func runRoslynProject(ctx context.Context, dotnet, projectPath string, files []string, timeout time.Duration) ([]csResult, error) {
-	args := make([]string, 0, 4+len(files))
-	args = append(args, "run", "--project", projectPath, "--")
+	args := make([]string, 0, 6+len(files))
+	args = append(args, "run", "--project", projectPath, "--verbosity", "quiet", "--")
 	args = append(args, files...)
 	//nolint:gosec // dotnet is a resolved SDK executable and args point at scanner-selected source files.
 	//nolint:gosec // dotnet is a resolved SDK executable used to publish scanner-owned embedded code.
@@ -248,11 +248,23 @@ func decodeRoslynCommand(cmd *exec.Cmd, ctx context.Context, timeout time.Durati
 		return nil, fmt.Errorf("csharp Roslyn extractor failed: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 
+	payload := trimToJSONArray(stdout.Bytes())
 	var results []csResult
-	if err := json.Unmarshal(stdout.Bytes(), &results); err != nil {
+	if err := json.Unmarshal(payload, &results); err != nil {
 		return nil, fmt.Errorf("decode C# Roslyn extractor output: %w", err)
 	}
 	return results, nil
+}
+
+// trimToJSONArray returns the slice starting at the first '[' byte, or the
+// original input when no opening bracket is found. Defends against stray
+// build/restore lines that some dotnet SDKs print to stdout ahead of the
+// extractor's JSON payload, which would otherwise break json.Unmarshal.
+func trimToJSONArray(b []byte) []byte {
+	if i := bytes.IndexByte(b, '['); i > 0 {
+		return b[i:]
+	}
+	return b
 }
 
 // ensureCachedRoslynExtractorPublished publishes a self-contained extractor
