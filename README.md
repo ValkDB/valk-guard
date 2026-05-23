@@ -112,14 +112,19 @@ Most SQL linters use regex. Valk Guard **walks real source structure** instead. 
 
 <table>
 <tr>
-<td width="50%">
+<td width="33%">
 
 **Go + Goqu** — walks builder chains via `go/ast`
 
 </td>
-<td width="50%">
+<td width="33%">
 
 **Python + SQLAlchemy** — parses ORM chains via Python AST
+
+</td>
+<td width="33%">
+
+**C# + EF Core** — extracts raw SQL and deterministic LINQ via Roslyn
 
 </td>
 </tr>
@@ -132,6 +137,11 @@ Most SQL linters use regex. Valk Guard **walks real source structure** instead. 
 <td>
 
 <img src="docs/media/demo-sqlalchemy.svg" alt="SQLAlchemy AST scanning demo" width="100%">
+
+</td>
+<td>
+
+<img src="docs/media/demo-csharp.svg" alt="C# EF Core AST scanning demo" width="100%">
 
 </td>
 </tr>
@@ -227,6 +237,7 @@ See valk-guard reviewing real code in [`ValkDB/valk-guard-example`](https://gith
 - [Schema-drift and DDL rules](https://github.com/ValkDB/valk-guard-example/pull/4)
 - [Query-schema validation (unknown columns/tables)](https://github.com/ValkDB/valk-guard-example/pull/5)
 - [Suppression showcase (inline + global config)](https://github.com/ValkDB/valk-guard-example/pull/6)
+- [C# EF Core query rules](https://github.com/ValkDB/valk-guard-example/pull/10)
 
 ---
 
